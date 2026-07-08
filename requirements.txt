@@ -1,0 +1,8 @@
+playwright
+Flask
+requests
+pandas
+openpyxl
+gunicorn
+apscheduler
+python-dotenv

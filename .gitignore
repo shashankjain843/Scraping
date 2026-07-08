@@ -1,0 +1,16 @@
+.venv/
+venv/
+__pycache__/
+*.log
+scheduler_log.txt
+.env
+*.pyc
+.pytest_cache/
+config.json
+generated_cold_emails.csv
+generated_cold_emails.json
+cold_email_output.txt
+linkedin_fresher_data_analyst_jobs_*.csv
+linkedin_fresher_data_analyst_jobs_*.json
+linkedin_fresher_data_analyst_jobs_*.xls
+linkedin_python_jobs_jaipur.csv

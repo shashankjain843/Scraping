@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LinkedIn Jobs & Cold Email Pipeline</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1, h2, h3 {
+            color: #333;
+        }
+        .stats-box {
+            background-color: #f4f4f9;
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 20px;
+        }
+        .stat-item {
+            font-weight: bold;
+        }
+        .btn {
+            background-color: #0077b5;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 4px;
+            margin-right: 10px;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .btn:hover {
+            background-color: #005987;
+        }
+        .btn-emails {
+            background-color: #28a745;
+        }
+        .btn-emails:hover {
+            background-color: #218838;
+        }
+        .error-message {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-weight: 500;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            margin-bottom: 30px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        .logs-box {
+            background-color: #1e1e1e;
+            color: #a9ffaf;
+            font-family: monospace;
+            padding: 15px;
+            border-radius: 5px;
+            max-height: 250px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>LinkedIn Scraper & Cold Email Hub</h1>
+    <p>A lightweight Flask web application configured for Render.com to scrape fresher Python jobs in Jaipur and draft cold emails.</p>
+
+    <!-- STATISTICS -->
+    <div class="stats-box">
+        <div class="stat-item">📁 Scraped Jobs: {{ jobs_count or 0 }}</div>
+        <div class="stat-item">✉️ Generated Emails: {{ emails_count or 0 }}</div>
+        <div class="stat-item">⏰ Scheduler Interval: {{ scrape_interval or 24 }} hours</div>
+    </div>
+
+    <!-- ACTIONS SECTION -->
+    <div style="margin-bottom: 30px;">
+        <h2>Actions</h2>
+        
+        <form action="{{ url_for('scrape') }}" method="POST" style="display: inline-block;">
+            <button type="submit" class="btn">🔍 Run Scraper (Jaipur Python Jobs)</button>
+        </form>
+
+        <form action="{{ url_for('generate_emails_route') }}" method="POST" style="display: inline-block;">
+            <button type="submit" class="btn btn-emails">✉️ Generate Cold Emails</button>
+        </form>
+        
+        <a href="/" class="btn" style="background-color: #6c757d;">🔄 Refresh Status</a>
+    </div>
+
+    <!-- SCRAPE ERROR -->
+    {% if scrape_error %}
+        <div class="error-message">
+            <strong>Scraping Error:</strong> {{ scrape_error }}
+        </div>
+    {% endif %}
+
+    <!-- EMAIL ERROR -->
+    {% if email_error %}
+        <div class="error-message">
+            <strong>Email Generation Error:</strong> {{ email_error }}
+        </div>
+    {% endif %}
+
+    <!-- JOBS RESULT TABLE -->
+    {% if jobs %}
+        <h2>Scraped Positions (Jaipur Python Jobs)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Company Name</th>
+                    <th>Job Title</th>
+                    <th>Location</th>
+                    <th>Skills Required</th>
+                    <th>Salary</th>
+                    <th>Job Url</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for job in jobs %}
+                    <tr>
+                        <td>{{ job.get('Company Name') or job.get('Company') }}</td>
+                        <td>{{ job.get('Job Title') or job.get('Title') }}</td>
+                        <td>{{ job.get('City / Location') or job.get('Location') }}</td>
+                        <td>{{ job.get('Required Skills') or job.get('Skills') }}</td>
+                        <td>{{ job.get('Salary Range') or job.get('Salary') }}</td>
+                        <td><a href="{{ job.get('Job Posting Link / URL') or job.get('Job URL') or job.get('Job Posting Link') }}" target="_blank">View Posting</a></td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+
+    <!-- EMAILS RESULT TABLE -->
+    {% if emails %}
+        <h2>Generated Cold Emails</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Company</th>
+                    <th>Job Title</th>
+                    <th>Generated Email</th>
+                    <th>Link</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for email in emails %}
+                    <tr>
+                        <td>{{ email.get('Company') }}</td>
+                        <td>{{ email.get('Job Title') or email.get('JobTitle') }}</td>
+                        <td><pre style="white-space: pre-wrap; font-family: inherit;">{{ email.get('Generated Email') or email.get('Email') }}</pre></td>
+                        <td><a href="{{ email.get('Job URL') or email.get('JobUrl') }}" target="_blank">Apply</a></td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+
+    <!-- SCHEDULER LOGS -->
+    <h2>Background Scheduler Logs</h2>
+    <div class="logs-box">{% if scheduler_logs %}{{ scheduler_logs }}{% else %}No scheduler logs found yet.{% endif %}</div>
+
+</body>
+</html>
