@@ -30,6 +30,7 @@ SCRAPE_INTERVAL_HOURS = 24
 SESSION_FILE = "linkedin_session.json"
 JOBS_CSV = "linkedin_python_jobs_jaipur.csv"
 EMAILS_CSV = "generated_cold_emails.csv"
+EMAILS_JSON = "generated_cold_emails.json"
 LOG_FILE = "scheduler_log.txt"
 
 # Default Resume Data for Cold Email Generator
@@ -580,6 +581,7 @@ def generate_emails_route():
             
         success_count = 0
         try:
+            import json
             with open(EMAILS_CSV, "w", newline="", encoding="utf-8-sig") as out_f:
                 writer = csv.writer(out_f)
                 writer.writerow(["Company", "Job Title", "Generated Email", "Job URL"])
@@ -605,12 +607,23 @@ def generate_emails_route():
                         })
                     time.sleep(2.0) # rate limiting delay
                     
+            # Save to JSON file as well
+            with open(EMAILS_JSON, "w", encoding="utf-8") as json_f:
+                json.dump(emails, json_f, indent=4, ensure_ascii=False)
+                    
         except Exception as e:
             error = f"Error generating emails: {str(e)}"
             logger.exception("Email generation failed")
     else:
         # Load from existing file if GET request
-        if os.path.exists(EMAILS_CSV):
+        if os.path.exists(EMAILS_JSON):
+            try:
+                import json
+                with open(EMAILS_JSON, mode="r", encoding="utf-8") as f:
+                    emails = json.load(f)
+            except Exception as e:
+                error = f"Failed to load existing emails JSON: {e}"
+        elif os.path.exists(EMAILS_CSV):
             try:
                 with open(EMAILS_CSV, mode="r", encoding="utf-8-sig") as f:
                     reader = csv.DictReader(f)
