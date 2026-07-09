@@ -7,6 +7,10 @@ import re
 import sys
 import urllib.parse
 from playwright.sync_api import sync_playwright
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Reconfigure stdout to use UTF-8 to prevent UnicodeEncodeError in Windows terminals
 if hasattr(sys.stdout, 'reconfigure'):
@@ -52,6 +56,38 @@ LOCATIONS = [
     "Gurugram"
 ]
 
+# Statistics tracking
+stats = {
+    "jobs_scraped": 0,
+    "emails_generated": 0,
+    "emails_sent": 0
+}
+
+def log_to_file(message):
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    formatted_msg = f"[{timestamp}] {message}\n"
+    print(formatted_msg.strip())
+    try:
+        with open("logs.txt", "a", encoding="utf-8") as f:
+            f.write(formatted_msg)
+    except Exception as e:
+        print(f"[ERROR] Failed to write to log file logs.txt: {e}")
+
+def retry_action(action_fn, action_name, max_attempts=3, initial_delay=2):
+    attempt = 0
+    delay = initial_delay
+    while attempt < max_attempts:
+        try:
+            return action_fn()
+        except Exception as e:
+            attempt += 1
+            if attempt >= max_attempts:
+                log_to_file(f"Action '{action_name}' failed after {max_attempts} attempts. Error: {e}")
+                raise e
+            log_to_file(f"Action '{action_name}' failed (attempt {attempt}/{max_attempts}). Retrying in {delay}s... Error: {e}")
+            time.sleep(delay)
+            delay *= 2
+
 def get_file_paths(location):
     loc_lower = location.lower().replace(" ", "_")
     if loc_lower == "gurugram" or loc_lower == "gurgaon":
@@ -80,7 +116,7 @@ def migrate_csv_headers(csv_path, new_headers):
                 break
                 
         if needs_migration:
-            print(f"[INFO] Migrating CSV headers for {csv_path} to support new fields...")
+            log_to_file(f"[INFO] Migrating CSV headers for {csv_path} to support new fields...")
             header_map = {h: idx for idx, h in enumerate(existing_headers)}
             
             with open(csv_path, "w", newline="", encoding="utf-8") as f:
@@ -95,9 +131,9 @@ def migrate_csv_headers(csv_path, new_headers):
                         else:
                             new_row.append("")
                     writer.writerow(new_row)
-            print(f"[INFO] Migration of {csv_path} complete.")
+            log_to_file(f"[INFO] Migration of {csv_path} complete.")
     except Exception as e:
-        print(f"[ERROR] Failed migrating CSV headers for {csv_path}: {e}")
+        log_to_file(f"[ERROR] Failed migrating CSV headers for {csv_path}: {e}")
 
 def normalize_url(url):
     """Strip query params so ?trackingId=... variants are treated as the same job."""
@@ -124,7 +160,7 @@ def load_all_existing_urls():
                         if url:
                             seen.add(url)
             except Exception as e:
-                print(f"[WARNING] Could not read JSON for dedup check {json_path}: {e}")
+                log_to_file(f"[WARNING] Could not read JSON for dedup check {json_path}: {e}")
         
     for path in files:
         if os.path.exists(path) and os.path.getsize(path) > 0:
@@ -136,8 +172,8 @@ def load_all_existing_urls():
                         if url:
                             seen.add(url)
             except Exception as e:
-                print(f"[WARNING] Could not read existing URLs from {path}: {e}")
-    print(f"[INFO] Loaded {len(seen)} unique existing job URLs for deduplication.")
+                log_to_file(f"[WARNING] Could not read existing URLs from {path}: {e}")
+    log_to_file(f"[INFO] Loaded {len(seen)} unique existing job URLs for deduplication.")
     return seen
 
 def append_job_to_csv(csv_path, job_data, headers):
@@ -149,7 +185,7 @@ def append_job_to_csv(csv_path, job_data, headers):
                 writer.writeheader()
             writer.writerow(job_data)
     except Exception as e:
-        print(f"[ERROR] Failed writing job to CSV {csv_path}: {e}")
+        log_to_file(f"[ERROR] Failed writing job to CSV {csv_path}: {e}")
 
 def append_job_to_json(json_path, job_data):
     try:
@@ -164,7 +200,7 @@ def append_job_to_json(json_path, job_data):
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(jobs, f, indent=4, ensure_ascii=False)
     except Exception as e:
-        print(f"[ERROR] Failed writing job to JSON {json_path}: {e}")
+        log_to_file(f"[ERROR] Failed writing job to JSON {json_path}: {e}")
 
 def safe_extract_any(locator, selectors, attribute=None, default=""):
     if not selectors:
@@ -313,12 +349,59 @@ def extract_website(description):
             return url
     return "Not Mentioned"
 
+def login_to_linkedin(page, email, password):
+    log_to_file("[INFO] Starting LinkedIn login process...")
+    try:
+        def goto_login():
+            page.goto("https://www.linkedin.com/login", timeout=60000)
+            page.wait_for_load_state("networkidle")
+        
+        retry_action(goto_login, "Navigate to LinkedIn login page")
+        check_captcha(page)
+        
+        # Fill email
+        username_sel = "input#username"
+        page.wait_for_selector(username_sel, state="visible", timeout=10000)
+        page.locator(username_sel).fill(email)
+        
+        # Fill password
+        password_sel = "input#password"
+        page.wait_for_selector(password_sel, state="visible", timeout=10000)
+        page.locator(password_sel).fill(password)
+        
+        # Sign in click with navigation expect
+        submit_sel = "button[type='submit']"
+        page.wait_for_selector(submit_sel, state="visible", timeout=10000)
+        
+        def click_submit():
+            with page.expect_navigation(timeout=60000):
+                page.locator(submit_sel).click()
+            page.wait_for_load_state("networkidle")
+            
+        retry_action(click_submit, "Submit LinkedIn login form")
+        check_captcha(page)
+        
+        if "feed" in page.url or "checkpoint" not in page.url:
+            log_to_file("[SUCCESS] Logged in to LinkedIn successfully.")
+        else:
+            log_to_file(f"[WARNING] Login might have requested security check or failed. Current URL: {page.url}")
+            check_captcha(page)
+    except Exception as login_err:
+        log_to_file(f"[ERROR] Failed to login to LinkedIn: {login_err}")
+        check_captcha(page)
+
 def scrape_job_details_fallback(context, job_url):
-    print(f"Fallback: loading job URL directly to scrape details: {job_url}")
+    log_to_file(f"Fallback: loading job URL directly to scrape details: {job_url}")
+    new_page = None
     try:
         new_page = context.new_page()
         new_page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        new_page.goto(job_url, timeout=30000)
+        
+        def goto_fallback_url():
+            new_page.goto(job_url, timeout=30000)
+            new_page.wait_for_load_state("networkidle")
+            
+        retry_action(goto_fallback_url, f"Navigate fallback URL: {job_url}")
         new_page.wait_for_timeout(3000)
         
         check_captcha(new_page)
@@ -333,6 +416,7 @@ def scrape_job_details_fallback(context, job_url):
             for sm_sel in show_more_selectors:
                 btn = new_page.locator(sm_sel).first
                 if btn.count() > 0 and btn.is_visible():
+                    new_page.wait_for_selector(sm_sel, state="visible", timeout=10000)
                     btn.click(force=True, timeout=2000)
                     new_page.wait_for_timeout(500)
                     break
@@ -376,20 +460,22 @@ def scrape_job_details_fallback(context, job_url):
         new_page.close()
         return description, job_type, exp_level, industry
     except Exception as e:
-        print(f"Fallback scraping failed for {job_url}: {e}")
-        try:
-            new_page.close()
-        except Exception:
-            pass
+        log_to_file(f"[WARNING] Fallback scraping failed for {job_url}: {e}")
+        if new_page:
+            try:
+                new_page.close()
+            except Exception:
+                pass
         return "Not Mentioned", "Not Mentioned", "Not Mentioned", "Not Mentioned"
 
 def scrape_search_results(page, context, keyword, location, seen_urls):
+    global stats
     jobs_collected = 0
     max_jobs_per_combo = 100
     last_count = 0
     no_change_iterations = 0
     
-    print("Scrolling to load job cards...")
+    log_to_file("Scrolling to load job cards...")
     while True:
         try:
             page.evaluate("""
@@ -411,27 +497,40 @@ def scrape_search_results(page, context, keyword, location, seen_urls):
         if count == last_count:
             no_change_iterations += 1
             if no_change_iterations > 12:
-                print("No more new jobs loading.")
+                log_to_file("No more new jobs loading.")
                 break
         else:
             no_change_iterations = 0
             last_count = count
             
-        page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
+        try:
+            def scroll():
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
+            retry_action(scroll, "Scroll search page")
+        except Exception as scroll_err:
+            log_to_file(f"[WARNING] Scroll failed: {scroll_err}. Skipping further scrolling.")
+            break
+
         page.wait_for_timeout(random.randint(3000, 6000))
         check_captcha(page)
         
         see_more_btn = page.locator("button.infinite-scroller__show-more-button, button:has-text('See more jobs')").first
         if see_more_btn.count() > 0 and see_more_btn.is_visible():
             try:
-                see_more_btn.click(force=True, timeout=5000)
+                def click_see_more():
+                    # Wait for selector of either button variation
+                    btn_sel = "button.infinite-scroller__show-more-button" if page.locator("button.infinite-scroller__show-more-button").count() > 0 else "button:has-text('See more jobs')"
+                    page.wait_for_selector(btn_sel, state="visible", timeout=10000)
+                    see_more_btn.click(force=True, timeout=5000)
+                
+                retry_action(click_see_more, "Click see more jobs button")
                 page.wait_for_timeout(2000)
-            except Exception:
-                pass
+            except Exception as see_more_err:
+                log_to_file(f"[WARNING] Click see more jobs failed: {see_more_err}")
                 
     job_cards = page.locator("div.base-card, .job-search-card, li.jobs-search-results__list-item")
     card_count = min(job_cards.count(), max_jobs_per_combo)
-    print(f"Finished scrolling. Loaded {job_cards.count()} job cards. Starting extraction for up to {card_count} jobs...")
+    log_to_file(f"Finished scrolling. Loaded {job_cards.count()} job cards. Starting extraction for up to {card_count} jobs...")
     
     city_csv, city_json = get_file_paths(location)
     
@@ -477,45 +576,51 @@ def scrape_search_results(page, context, keyword, location, seen_urls):
             if clean_url in seen_urls:
                 print(f"  [SKIP - already scraped] {job_title} at {company_name}")
                 continue
-                
-            try:
+
+            # Core extraction process with card clicking
+            def extract_details():
+                card.wait_for(state="visible", timeout=10000)
                 card.click(force=True, timeout=5000)
                 page.wait_for_timeout(random.randint(2000, 3000))
-            except Exception:
-                pass
+                check_captcha(page)
                 
-            check_captcha(page)
-            
-            try:
                 show_more_selectors = [
                     "button.show-more-less-html__button",
                     "button:has-text('Show more')",
                     "button:has-text('See more')"
                 ]
                 show_more_btn = None
+                chosen_sel = None
                 for sm_sel in show_more_selectors:
                     btn = page.locator(sm_sel).first
                     if btn.count() > 0 and btn.is_visible():
                         show_more_btn = btn
+                        chosen_sel = sm_sel
                         break
                 if show_more_btn:
+                    page.wait_for_selector(chosen_sel, state="visible", timeout=10000)
                     show_more_btn.click(force=True, timeout=2000)
                     page.wait_for_timeout(500)
-            except Exception:
-                pass
                 
-            description = "Not Mentioned"
-            desc_selectors = [
-                "div.show-more-less-html__markup",
-                ".description__text"
-            ]
-            for d_sel in desc_selectors:
-                el = page.locator(d_sel).first
-                if el.count() > 0:
-                    description = el.inner_text().strip()
-                    if description:
-                        break
-                        
+                description = "Not Mentioned"
+                desc_selectors = [
+                    "div.show-more-less-html__markup",
+                    ".description__text"
+                ]
+                for d_sel in desc_selectors:
+                    el = page.locator(d_sel).first
+                    if el.count() > 0:
+                        description = el.inner_text().strip()
+                        if description:
+                            break
+                return description
+
+            try:
+                description = retry_action(extract_details, f"Extract details for job: {job_title} at {company_name}")
+            except Exception as extract_err:
+                log_to_file(f"[WARNING] Skipping job card {idx} ('{job_title}' at '{company_name}') due to persistent errors: {extract_err}")
+                continue
+                
             job_type = "Not Mentioned"
             exp_level = "Not Mentioned"
             industry = "Not Mentioned"
@@ -583,16 +688,17 @@ def scrape_search_results(page, context, keyword, location, seen_urls):
             
             seen_urls.add(normalize_url(clean_url))
             jobs_collected += 1
+            stats["jobs_scraped"] += 1
             
-            print(f"[SCRAPED: {keyword} in {location}] {jobs_collected} jobs found -> '{job_title}' at '{company_name}'")
+            log_to_file(f"[SCRAPED: {keyword} in {location}] {jobs_collected} jobs found -> '{job_title}' at '{company_name}'")
             
         except Exception as card_err:
-            print(f"[WARNING] Error processing job card {idx}: {card_err}")
+            log_to_file(f"[WARNING] Skipping job card {idx} due to processing error: {card_err}")
 
 def main():
-    print("="*60)
-    print("LINKEDIN GUEST JOBS SCRAPER INITIALIZING (NO LOGIN)")
-    print("="*60)
+    log_to_file("="*60)
+    log_to_file("LINKEDIN JOBS SCRAPER INITIALIZING")
+    log_to_file("="*60)
     
     # Migrate CSV headers for all output files to support new columns
     files_to_migrate = [MERGED_CSV]
@@ -605,7 +711,7 @@ def main():
     seen_urls = load_all_existing_urls()
     
     with sync_playwright() as p:
-        print("Launching Chromium browser (headless=False)...")
+        log_to_file("Launching Chromium browser (headless=False)...")
         browser = p.chromium.launch(
             headless=False,
             args=["--disable-blink-features=AutomationControlled"]
@@ -619,65 +725,96 @@ def main():
         page = context.new_page()
         page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
+        # Log in if credentials available
+        linkedin_email = os.environ.get("LINKEDIN_EMAIL")
+        linkedin_password = os.environ.get("LINKEDIN_PASSWORD")
+        if linkedin_email and linkedin_password:
+            login_to_linkedin(page, linkedin_email, linkedin_password)
+        else:
+            log_to_file("[INFO] No LinkedIn credentials found in .env. Running as guest (NO LOGIN).")
+        
         for keyword in KEYWORDS:
             for location in LOCATIONS:
-                print("\n" + "-"*50)
-                print(f"Scraping: '{keyword}' in '{location}'")
-                print("-"*50)
+                log_to_file("\n" + "-"*50)
+                log_to_file(f"Scraping: '{keyword}' in '{location}'")
+                log_to_file("-"*50)
                 
                 try:
-                    page.goto("https://www.linkedin.com/jobs/", timeout=60000)
+                    def navigate_main():
+                        page.goto("https://www.linkedin.com/jobs/", timeout=60000)
+                        page.wait_for_load_state("networkidle")
+                    
+                    retry_action(navigate_main, "Navigate to LinkedIn jobs portal")
                     page.wait_for_timeout(random.randint(2000, 3000))
                     check_captcha(page)
                     
                     search_success = False
                     try:
-                        keyword_input = page.locator("input[name='keywords'], input[aria-label='Search job titles or companies']").first
-                        location_input = page.locator("input[name='location'], input[aria-label='Location']").first
+                        keyword_sel = "input[name='keywords'], input[aria-label='Search job titles or companies']"
+                        loc_sel = "input[name='location'], input[aria-label='Location']"
+                        
+                        # Wait for inputs to be visible
+                        page.wait_for_selector(keyword_sel, state="visible", timeout=10000)
+                        keyword_input = page.locator(keyword_sel).first
+                        location_input = page.locator(loc_sel).first
                         
                         if keyword_input.count() > 0 and location_input.count() > 0:
-                            keyword_input.click()
-                            page.keyboard.press("Control+A")
-                            page.keyboard.press("Backspace")
-                            keyword_input.fill(keyword)
-                            page.wait_for_timeout(500)
-                            
-                            location_input.click()
-                            page.keyboard.press("Control+A")
-                            page.keyboard.press("Backspace")
-                            location_input.fill(location)
-                            page.wait_for_timeout(500)
-                            
-                            search_btn = page.locator("button.search-button, button[type='submit']").first
-                            if search_btn.count() > 0:
-                                search_btn.click()
-                            else:
-                                page.keyboard.press("Enter")
+                            def perform_search():
+                                page.wait_for_selector(keyword_sel, state="visible", timeout=10000)
+                                keyword_input.click()
+                                page.keyboard.press("Control+A")
+                                page.keyboard.press("Backspace")
+                                keyword_input.fill(keyword)
+                                page.wait_for_timeout(500)
                                 
+                                page.wait_for_selector(loc_sel, state="visible", timeout=10000)
+                                location_input.click()
+                                page.keyboard.press("Control+A")
+                                page.keyboard.press("Backspace")
+                                location_input.fill(location)
+                                page.wait_for_timeout(500)
+                                
+                                search_btn_sel = "button.search-button, button[type='submit']"
+                                search_btn = page.locator(search_btn_sel).first
+                                
+                                page.wait_for_selector(search_btn_sel, state="visible", timeout=10000)
+                                with page.expect_navigation(timeout=60000):
+                                    if search_btn.count() > 0:
+                                        search_btn.click()
+                                    else:
+                                        page.keyboard.press("Enter")
+                                page.wait_for_load_state("networkidle")
+                            
+                            retry_action(perform_search, f"Fill and submit search for '{keyword}' in '{location}'")
                             search_success = True
-                            print("Search triggered via guest input fields.")
+                            log_to_file("Search triggered via guest input fields.")
                             page.wait_for_timeout(random.randint(4000, 6000))
                     except Exception as search_err:
-                        print(f"Could not search using guest input fields: {search_err}. Falling back to direct URL...")
+                        log_to_file(f"[INFO] Could not search using guest inputs: {search_err}. Falling back to direct URL...")
                         
                     if not search_success or "search" not in page.url.lower():
                         encoded_keyword = urllib.parse.quote(keyword)
                         encoded_location = urllib.parse.quote(location)
                         search_url = f"https://www.linkedin.com/jobs/search?keywords={encoded_keyword}&location={encoded_location}"
-                        print(f"Navigating directly to search URL: {search_url}")
-                        page.goto(search_url, timeout=60000)
+                        log_to_file(f"Navigating directly to search URL: {search_url}")
+                        
+                        def navigate_direct_search():
+                            page.goto(search_url, timeout=60000)
+                            page.wait_for_load_state("networkidle")
+                            
+                        retry_action(navigate_direct_search, "Navigate directly to search URL")
                         page.wait_for_timeout(random.randint(4000, 6000))
                         
                     check_captcha(page)
                     scrape_search_results(page, context, keyword, location, seen_urls)
                     
                 except Exception as combo_err:
-                    print(f"[ERROR] Failed combination '{keyword}' in '{location}': {combo_err}")
+                    log_to_file(f"[ERROR] Failed combination '{keyword}' in '{location}': {combo_err}")
                     
         browser.close()
-        print("\n" + "="*60)
-        print("LINKEDIN JOBS SCRAPER RUN COMPLETED SUCCESSFULLY!")
-        print("="*60)
+        log_to_file("\n" + "="*60)
+        log_to_file(f"LINKEDIN JOBS SCRAPER RUN COMPLETED SUCCESSFULLY! Total jobs scraped: {stats['jobs_scraped']}")
+        log_to_file("="*60)
 
 if __name__ == "__main__":
     main()

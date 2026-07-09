@@ -3,8 +3,16 @@ import csv
 import time
 import json
 import sys
+import re
 import requests
+import smtplib
+from email.mime.text import MIMEText
+from email.header import Header
 from docx import Document
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Reconfigure stdout to use UTF-8 to prevent UnicodeEncodeError in Windows terminals
 if hasattr(sys.stdout, 'reconfigure'):
@@ -14,18 +22,16 @@ if hasattr(sys.stdout, 'reconfigure'):
         pass
 
 # Configurations
-# You can change the model name below (e.g. "google/gemini-2.5-flash", "meta-llama/llama-3-8b-instruct", etc.)
 MODEL_NAME = "openai/gpt-4o-mini"
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+TRACKER_FILE = "sent_emails_tracker.json"
+MAX_DAILY_EMAILS = 10  # Enforces a limit of 10 emails per day
 
-
-# Resume file ka path — absolute path taaki script kahan se bhi chale, file mile
+# Resume file path
 RESUME_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "my_resume.docx")
-
-# Global resume data — main() mein dynamically load hoga
 RESUME_DATA = None
 
-# Fallback resume (agar .docx file na mile tab use hoga)
+# Fallback resume
 RESUME_DATA_FALLBACK = {
     "Name": "Shashank Jain",
     "Role": "Data Analyst",
@@ -56,32 +62,119 @@ RESUME_DATA_FALLBACK = {
     }
 }
 
+# Stats tracking for logs
+stats = {
+    "jobs_scraped": 0,
+    "emails_generated": 0,
+    "emails_sent": 0
+}
+
+def log_to_file(message):
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    formatted_msg = f"[{timestamp}] {message}\n"
+    print(formatted_msg.strip())
+    try:
+        with open("logs.txt", "a", encoding="utf-8") as f:
+            f.write(formatted_msg)
+    except Exception as e:
+        print(f"[ERROR] Failed to write to log file logs.txt: {e}")
+
+def get_daily_sent_count():
+    today = time.strftime("%Y-%m-%d")
+    if os.path.exists(TRACKER_FILE):
+        try:
+            with open(TRACKER_FILE, "r") as f:
+                data = json.load(f)
+                if data.get("date") == today:
+                    return data.get("count", 0)
+        except Exception:
+            pass
+    return 0
+
+def increment_daily_sent_count():
+    today = time.strftime("%Y-%m-%d")
+    count = get_daily_sent_count() + 1
+    try:
+        with open(TRACKER_FILE, "w") as f:
+            json.dump({"date": today, "count": count}, f)
+    except Exception as e:
+        log_to_file(f"[WARNING] Failed to write to tracker file: {e}")
+    return count
+
+def find_email_in_text(text):
+    if not text:
+        return None
+    emails = re.findall(r'\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b', text)
+    for email in emails:
+        if not any(x in email.lower() for x in ["noreply", "no-reply", "donotreply", "support@", "privacy@", "info@"]):
+            return email
+    return emails[0] if emails else None
+
+def extract_subject_and_body(email_text):
+    lines = email_text.strip().split("\n")
+    subject = "Application for Data Analyst Position"
+    body_lines = []
+    subject_found = False
+    
+    for line in lines:
+        if not subject_found and line.lower().startswith("subject:"):
+            subject = line[len("subject:"):].strip()
+            subject_found = True
+        else:
+            body_lines.append(line)
+            
+    body = "\n".join(body_lines).strip()
+    return subject, body
+
+def send_email_via_smtp(subject, body, recipient_email):
+    global stats
+    smtp_server = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
+    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    smtp_email = os.environ.get("SMTP_EMAIL")
+    smtp_password = os.environ.get("SMTP_PASSWORD")
+    
+    if not smtp_email or not smtp_password:
+        log_to_file("[ERROR] SMTP credentials not set in .env. Skipping email sending.")
+        return False
+        
+    try:
+        msg = MIMEText(body, "plain", "utf-8")
+        msg["Subject"] = Header(subject, "utf-8")
+        msg["From"] = smtp_email
+        msg["To"] = recipient_email
+        
+        server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
+        server.starttls()
+        server.login(smtp_email, smtp_password)
+        server.sendmail(smtp_email, [recipient_email], msg.as_string())
+        server.quit()
+        
+        log_to_file(f"[SUCCESS] SMTP Email successfully sent to: {recipient_email}")
+        stats["emails_sent"] += 1
+        return True
+    except Exception as smtp_err:
+        log_to_file(f"[ERROR] SMTP sending failed to {recipient_email}: {smtp_err}")
+        return False
+
 def parse_resume_from_doc(filepath, api_key):
-    """
-    STEP 3: .docx file se raw text nikalega, phir OpenRouter AI se
-    structured JSON resume banayega aur return karega.
-    """
-    # Step 3A: .docx file se saara text nikalo
     try:
         doc = Document(filepath)
         raw_text = "\n".join([para.text for para in doc.paragraphs if para.text.strip()])
     except Exception as docx_err:
-        # Fallback: Agar docx parser parse nahi kar paaye (jaise plain text file renamed docx), toh standard file handling se read karo
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 raw_text = f.read().strip()
         except Exception as txt_err:
-            print(f"[ERROR] Resume file read nahi hui (Docx error: {docx_err}, Plain text error: {txt_err})")
+            log_to_file(f"[ERROR] Resume file read failed (Docx error: {docx_err}, Plain text error: {txt_err})")
             return None
 
     if not raw_text.strip():
-        print("[ERROR] Resume file empty hai ya text nahi mila!")
+        log_to_file("[ERROR] Resume file empty or readable text not found!")
         return None
 
-    print(f"[INFO] Resume file padh li: {filepath}")
-    print("[INFO] AI se resume parse kar raha hoon...")
+    log_to_file(f"[INFO] Resume read successfully from: {filepath}")
+    log_to_file("[INFO] Parsing resume using AI parser...")
 
-    # Step 3B: OpenRouter AI se structured JSON banao
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
@@ -117,66 +210,36 @@ Resume Text:
         response.raise_for_status()
         content = response.json()["choices"][0]["message"]["content"].strip()
 
-        # Agar AI ne code block mein wrap karke diya to clean karo
         if content.startswith("```"):
             lines = content.split("\n")
             lines = [l for l in lines if not l.strip().startswith("```")]
             content = "\n".join(lines).strip()
 
         resume_data = json.loads(content)
-        print("[INFO] Resume successfully parse ho gaya! [OK]")
+        log_to_file("[INFO] Resume parsed successfully by AI.")
         return resume_data
-
-    except json.JSONDecodeError as e:
-        print(f"[ERROR] AI ne valid JSON nahi diya: {e}")
-        print(f"[DEBUG] AI response tha: {content[:300]}")
-        return None
     except Exception as e:
-        print(f"[ERROR] Resume parse karne mein problem: {e}")
+        log_to_file(f"[ERROR] Failed parsing resume with AI: {e}")
         return None
 
 def get_api_key():
-    """Retrieve the API key from the environment variable or .env file."""
-    # Check if .env file exists and read from it if variable not already set
-    if not os.environ.get("OPENROUTER_API_KEY") and os.path.exists(".env"):
-        try:
-            with open(".env", "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#"):
-                        parts = line.split("=", 1)
-                        if len(parts) == 2 and parts[0].strip() == "OPENROUTER_API_KEY":
-                            os.environ["OPENROUTER_API_KEY"] = parts[1].strip().strip('"').strip("'")
-                            break
-        except Exception:
-            pass
-
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
-        print("\n[ERROR] OPENROUTER_API_KEY environment variable is not set!")
-        print("Please set it in your terminal before running this script.")
-        print("Example (PowerShell): $env:OPENROUTER_API_KEY=\"your-key-here\"")
-        print("Example (CMD):        set OPENROUTER_API_KEY=your-key-here")
-        print("Example (Bash):       export OPENROUTER_API_KEY=\"your-key-here\"\n")
-        # Ask user directly as a fallback to make it easy to use
-        api_key = input("Alternatively, paste your OpenRouter API Key here (or press Enter to exit): ").strip()
+        log_to_file("[ERROR] OPENROUTER_API_KEY environment variable is not set in environment or .env!")
+        api_key = input("Please paste your OpenRouter API Key: ").strip()
         if not api_key:
             sys.exit(1)
     return api_key
 
 def generate_cold_email(api_key, company_name, job_title, job_description):
-    """
-    Call the OpenRouter API to generate a personalized cold email.
-    Matches skills/projects from the resume and ensures no placeholders are present.
-    """
+    global stats
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com/shashankjain843",  # Optional rank header
+        "HTTP-Referer": "https://github.com/shashankjain843",
         "X-Title": "Cold Email Generator"
     }
 
-    # Custom instructions for the model
     system_prompt = (
         "Tu ek professional cold email writer hai. Email short, direct, no fluff, 5-6 lines ka ho. "
         "Candidate ke resume se sirf wahi skills/projects mention karo jo job description se match karte hain. "
@@ -184,7 +247,10 @@ def generate_cold_email(api_key, company_name, job_title, job_description):
         "Do not use placeholders like [Company Name], [Job Title], [Your Name], or any brackets. "
         "Always replace them with the actual names provided. "
         "The response must start directly with 'Subject: [Subject Line]' followed by the email body. "
-        "Do not write any introductory or concluding conversation text, just start with Subject:."
+        "Do not write any introductory or concluding conversation text, just start with Subject:.\n"
+        "CRITICAL: Do NOT use any spam-trigger words or phrases such as 'Free', 'Guaranteed', "
+        "'Act now', 'Limited time', 'Click here', 'Risk-free', 'Special offer', 'Click below', or 'Hurry'. "
+        "Subject lines should be unique, professional, and personalized to the role and company."
     )
 
     user_prompt = f"""
@@ -220,17 +286,17 @@ Write a personalized cold email from {RESUME_DATA['Name']} to the recruiter or h
         response.raise_for_status()
         data = response.json()
         if "choices" in data and len(data["choices"]) > 0:
+            stats["emails_generated"] += 1
             return data["choices"][0]["message"]["content"].strip()
         else:
-            print(f"  [ERROR] Invalid API response format: {data}")
+            log_to_file(f"[ERROR] Invalid API response format from OpenRouter: {data}")
             return None
     except Exception as e:
-        print(f"  [ERROR] API call failed: {e}")
+        log_to_file(f"[ERROR] AI cold email generation API call failed: {e}")
         return None
 
 def run_mode_a(api_key):
-    """Mode A: Standalone (Manual input)"""
-    print("\n--- MODE A: Standalone (Manual Cold Email Generator) ---")
+    log_to_file("\n--- MODE A: Standalone (Manual Cold Email Generator) ---")
     company_name = input("Enter Company Name: ").strip()
     job_title = input("Enter Job Title: ").strip()
 
@@ -247,9 +313,9 @@ def run_mode_a(api_key):
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 job_desc = f.read().strip()
-            print(f"Successfully read job description from: {file_path}")
+            log_to_file(f"Successfully read job description from: {file_path}")
         except Exception as e:
-            print(f"[ERROR] Could not read file: {e}. Please enter description manually.")
+            log_to_file(f"[ERROR] Could not read file: {e}. Exiting manual entry.")
             return
     else:
         if first_input.strip().upper() != "DONE":
@@ -262,10 +328,10 @@ def run_mode_a(api_key):
         job_desc = "\n".join(lines)
 
     if not company_name or not job_title or not job_desc:
-        print("[ERROR] Company Name, Job Title, and Job Description cannot be empty!")
+        log_to_file("[ERROR] Company Name, Job Title, and Job Description cannot be empty!")
         return
 
-    print("\nGenerating email using OpenRouter API...")
+    log_to_file("Generating email template using OpenRouter API...")
     email_text = generate_cold_email(api_key, company_name, job_title, job_desc)
     
     if email_text:
@@ -280,17 +346,27 @@ def run_mode_a(api_key):
         try:
             with open(out_filename, "w", encoding="utf-8") as f:
                 f.write(f"Company: {company_name}\nJob Title: {job_title}\n\n{email_text}\n")
-            print(f"\n[SUCCESS] Email successfully saved to: {out_filename}")
+            log_to_file(f"[SUCCESS] Email successfully saved to: {out_filename}")
         except Exception as e:
-            print(f"[WARNING] Failed to save to file: {e}")
+            log_to_file(f"[WARNING] Failed to save draft to file: {e}")
+            
+        recipient_email = input("\nEnter recipient's email address to send now (leave blank to skip sending): ").strip()
+        if recipient_email:
+            daily_sent = get_daily_sent_count()
+            if daily_sent >= MAX_DAILY_EMAILS:
+                log_to_file(f"[LIMIT REACHED] Maximum daily sending limit of {MAX_DAILY_EMAILS} emails has been reached. Please run the script again tomorrow to continue sending.")
+                return
+            
+            subject, body = extract_subject_and_body(email_text)
+            sent_ok = send_email_via_smtp(subject, body, recipient_email)
+            if sent_ok:
+                increment_daily_sent_count()
     else:
-        print("[ERROR] Could not generate cold email.")
+        log_to_file("[ERROR] Could not generate cold email.")
 
 def run_mode_b(api_key):
-    """Mode B: Scraper Integration (Automatic use from CSV)"""
-    print("\n--- MODE B: Scraper Integration (Automatic Cold Email Generator) ---")
+    log_to_file("\n--- MODE B: Scraper Integration (Automatic Cold Email Generator) ---")
     
-    # List files in current directory to help user choose
     files = [f for f in os.listdir(".") if f.endswith(".csv")]
     print("\nAvailable CSV files in current directory:")
     for idx, f in enumerate(files, 1):
@@ -302,27 +378,23 @@ def run_mode_b(api_key):
         csv_path = default_file
 
     if not os.path.exists(csv_path):
-        print(f"[ERROR] File '{csv_path}' does not exist!")
+        log_to_file(f"[ERROR] File '{csv_path}' does not exist!")
         return
 
-    # Check if the filename contains "naukri" (Skip Naukri.com files as requested)
     if "naukri" in os.path.basename(csv_path).lower():
-        print(f"\n[INFO] Skipping file '{csv_path}' because it belongs to Naukri.com (only LinkedIn is processed).")
+        log_to_file(f"[INFO] Skipping file '{csv_path}' because it belongs to Naukri.com.")
         return
 
-    print(f"\nReading jobs from: {csv_path}...")
+    log_to_file(f"Reading jobs from: {csv_path}...")
     jobs = []
     try:
         with open(csv_path, mode="r", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
-            
-            # Map columns dynamically to support different layouts
             headers = reader.fieldnames
             if not headers:
-                print("[ERROR] CSV file is empty or has no headers!")
+                log_to_file("[ERROR] CSV file is empty or has no headers!")
                 return
                 
-            # Helper to find column name matching keys
             def find_col(possible_names):
                 for name in possible_names:
                     for header in headers:
@@ -335,43 +407,43 @@ def run_mode_b(api_key):
             skills_col = find_col(["Required Skills", "Job Description", "skills", "description", "required_skills"])
             url_col = find_col(["Job Posting Link / URL", "Job URL", "url", "link", "job_url", "posting_url"])
             source_col = find_col(["Source Platform", "source", "Source"])
+            email_col = find_col(["Recruiter Email", "Email", "recruiter_email", "email", "contact_email"])
 
             if not company_col or not title_col:
-                print(f"[ERROR] Could not map key columns. Found columns: {headers}")
-                print("Make sure the CSV has at least 'Company Name' and 'Job Title' columns.")
+                log_to_file(f"[ERROR] Could not map key columns. Found columns: {headers}")
                 return
 
             for row in reader:
-                # Double check to skip any Naukri jobs from the platform value
                 if source_col:
                     source_val = (row.get(source_col) or "").strip().lower()
                     if "naukri" in source_val:
-                        continue # Skip Naukri jobs
+                        continue
                 
                 comp = (row.get(company_col) or "").strip()
                 title = (row.get(title_col) or "").strip()
-                skills = (row.get(skills_col) or "Data Analyst skills").strip()
+                skills = (row.get(skills_col) or "").strip()
                 url = (row.get(url_col) or "Not Available").strip()
+                email = (row.get(email_col) or "").strip() if email_col else ""
                 
                 if comp and title:
                     jobs.append({
                         "company": comp,
                         "title": title,
                         "skills": skills,
-                        "url": url
+                        "url": url,
+                        "email": email
                     })
     except Exception as e:
-        print(f"[ERROR] Failed to read CSV file: {e}")
+        log_to_file(f"[ERROR] Failed to read CSV file: {e}")
         return
 
     if not jobs:
-        print("[INFO] No LinkedIn jobs found to process in the CSV.")
+        log_to_file("[INFO] No LinkedIn jobs found to process in the CSV.")
         return
 
-    print(f"Found {len(jobs)} LinkedIn job(s) to process.")
+    log_to_file(f"Found {len(jobs)} LinkedIn job(s) to process.")
     output_file = "generated_cold_emails.csv"
     
-    # Check if we should append or overwrite
     mode = "w"
     write_header = True
     if os.path.exists(output_file):
@@ -380,66 +452,86 @@ def run_mode_b(api_key):
             mode = "a"
             write_header = False
         elif ans == "C":
-            print("Operation cancelled.")
+            log_to_file("Operation cancelled.")
             return
 
     processed_count = 0
     success_count = 0
 
-    # Open file for writing immediately so we write as we go (prevents loss if interrupted)
     try:
         with open(output_file, mode=mode, encoding="utf-8-sig", newline="") as out_f:
             writer = csv.writer(out_f)
             if write_header:
-                writer.writerow(["Company", "Job Title", "Generated Email", "Job URL"])
+                writer.writerow(["Company", "Job Title", "Generated Email", "Job URL", "Recipient Email"])
 
             for idx, job in enumerate(jobs, 1):
-                print(f"\n[{idx}/{len(jobs)}] Processing: {job['title']} at {job['company']}")
+                log_to_file(f"\n[{idx}/{len(jobs)}] Processing: {job['title']} at {job['company']}")
                 
                 email_text = generate_cold_email(api_key, job['company'], job['title'], job['skills'])
                 processed_count += 1
                 
                 if email_text:
-                    writer.writerow([job['company'], job['title'], email_text, job['url']])
-                    out_f.flush()  # force write to disk
-                    success_count += 1
-                    print(f"  [SUCCESS] Cold email generated and saved.")
-                else:
-                    print(f"  [SKIPPED] Failed to generate email for this job.")
-
-                # Delay between calls to respect rate limits
-                if idx < len(jobs):
-                    delay = 2.5
-                    print(f"  Waiting {delay} seconds...")
-                    time.sleep(delay)
+                    recipient = job['email'] if job['email'] else find_email_in_text(job['skills'])
                     
-        print(f"\n[FINISHED] Processed {processed_count} jobs. Successfully generated {success_count} emails.")
-        print(f"Results saved to: {output_file}")
+                    writer.writerow([job['company'], job['title'], email_text, job['url'], recipient or "Not Found"])
+                    out_f.flush()
+                    success_count += 1
+                    log_to_file(f"  [SUCCESS] Cold email generated and saved.")
+                    
+                    if recipient:
+                        daily_sent = get_daily_sent_count()
+                        if daily_sent >= MAX_DAILY_EMAILS:
+                            log_to_file(f"\n[LIMIT REACHED] Daily sending limit of {MAX_DAILY_EMAILS} emails reached. Exiting sending loop. Drafts saved.")
+                            break
+                        
+                        subject, body = extract_subject_and_body(email_text)
+                        log_to_file(f"  [SMTP] Recruiter email found: {recipient}. Attempting SMTP sending...")
+                        
+                        sent_ok = send_email_via_smtp(subject, body, recipient)
+                        if sent_ok:
+                            new_count = increment_daily_sent_count()
+                            log_to_file(f"  [LIMIT CHECK] Daily emails sent: {new_count}/{MAX_DAILY_EMAILS}")
+                            
+                            # Random delay 30-60 seconds for deliverability
+                            if idx < len(jobs) and new_count < MAX_DAILY_EMAILS:
+                                delay = random.randint(30, 60)
+                                log_to_file(f"  [DELAY] Waiting {delay} seconds between email sends to protect sender reputation...")
+                                time.sleep(delay)
+                        else:
+                            log_to_file("  [SMTP ERROR] Skipping delay since sending failed.")
+                    else:
+                        log_to_file("  [INFO] No recipient email found in job details. Draft saved only.")
+                        
+                        # Short delay between API requests to respect OpenRouter rate limits
+                        if idx < len(jobs):
+                            time.sleep(2.5)
+                else:
+                    log_to_file(f"  [SKIPPED] Failed to generate email for this job.")
+
+        log_to_file(f"\n[FINISHED] Processed {processed_count} jobs. Successfully generated {success_count} emails. Total emails sent via SMTP: {stats['emails_sent']}")
+        log_to_file(f"Results saved to: {output_file}")
     except Exception as e:
-        print(f"[ERROR] Failed writing to output file: {e}")
+        log_to_file(f"[ERROR] Failed writing to output file: {e}")
 
 def main():
     global RESUME_DATA
 
-    print("==================================================")
-    print("      AUTOMATIC COLD EMAIL GENERATOR (OPENROUTER) ")
-    print("==================================================")
+    log_to_file("="*60)
+    log_to_file("AUTOMATIC COLD EMAIL GENERATOR (OPENROUTER)")
+    log_to_file("="*60)
 
-    # STEP 4: Pehle API key lo, phir resume .docx se parse karo
     api_key = get_api_key()
 
     if os.path.exists(RESUME_FILE):
-        # .docx file mili — dynamically parse karo
         RESUME_DATA = parse_resume_from_doc(RESUME_FILE, api_key)
         if RESUME_DATA is None:
-            print("[WARNING] Resume parse nahi hua. Fallback (hardcoded) resume use kar raha hoon.")
+            log_to_file("[WARNING] Resume parse failed. Using fallback (hardcoded) resume.")
             RESUME_DATA = RESUME_DATA_FALLBACK
     else:
-        # File nahi mili — fallback use karo
-        print(f"[WARNING] '{RESUME_FILE}' file nahi mili! Fallback (hardcoded) resume use kar raha hoon.")
+        log_to_file(f"[WARNING] '{RESUME_FILE}' not found! Using fallback (hardcoded) resume.")
         RESUME_DATA = RESUME_DATA_FALLBACK
 
-    print(f"\n[READY] Resume loaded: {RESUME_DATA.get('Name', 'Unknown')} - {RESUME_DATA.get('Role', 'Unknown')}")
+    log_to_file(f"[READY] Resume loaded for: {RESUME_DATA.get('Name', 'Unknown')} - {RESUME_DATA.get('Role', 'Unknown')}")
 
     print("\nSelect Mode:")
     print("1. Mode A – Standalone (Enter job details manually)")
@@ -451,7 +543,7 @@ def main():
     elif choice == "2":
         run_mode_b(api_key)
     else:
-        print("Invalid choice. Exiting.")
+        log_to_file("Invalid choice. Exiting.")
 
 if __name__ == "__main__":
     main()

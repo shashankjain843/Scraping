@@ -7,11 +7,18 @@ import sys
 import logging
 import datetime
 import requests
+import smtplib
+import json
+from email.mime.text import MIMEText
+from email.header import Header
 from flask import Flask, render_template, request, jsonify, redirect, url_for
 from playwright.sync_api import sync_playwright
 from apscheduler.schedulers.background import BackgroundScheduler
+from dotenv import load_dotenv
 
-from typing import Optional, List
+# Load environment variables
+load_dotenv()
+
 # Reconfigure stdout to use UTF-8
 if hasattr(sys.stdout, 'reconfigure'):
     try:
@@ -27,11 +34,19 @@ app = Flask(__name__)
 
 # Constants / Configurations
 SCRAPE_INTERVAL_HOURS = 24
-SESSION_FILE = "linkedin_session.json"
 JOBS_CSV = "linkedin_python_jobs_jaipur.csv"
 EMAILS_CSV = "generated_cold_emails.csv"
 EMAILS_JSON = "generated_cold_emails.json"
 LOG_FILE = "scheduler_log.txt"
+TRACKER_FILE = "sent_emails_tracker.json"
+MAX_DAILY_EMAILS = 10
+
+# Statistics tracking
+stats = {
+    "jobs_scraped": 0,
+    "emails_generated": 0,
+    "emails_sent": 0
+}
 
 # Default Resume Data for Cold Email Generator
 RESUME_DATA = {
@@ -63,6 +78,114 @@ RESUME_DATA = {
     }
 }
 
+# Logging helper
+def log_scheduler(message: str):
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_entry = f"[{timestamp}] {message}\n"
+    print(log_entry.strip())
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(log_entry)
+        # Also write to logs.txt
+        with open("logs.txt", "a", encoding="utf-8") as f:
+            f.write(log_entry)
+    except Exception as e:
+        logger.error(f"Failed to log scheduler: {e}")
+
+# Helper to retry browser actions
+def retry_action(action_fn, action_name, max_attempts=3, initial_delay=2):
+    attempt = 0
+    delay = initial_delay
+    while attempt < max_attempts:
+        try:
+            return action_fn()
+        except Exception as e:
+            attempt += 1
+            if attempt >= max_attempts:
+                log_scheduler(f"[ERROR] Action '{action_name}' failed after {max_attempts} attempts. Error: {e}")
+                raise e
+            log_scheduler(f"[WARNING] Action '{action_name}' failed (attempt {attempt}/{max_attempts}). Retrying in {delay}s... Error: {e}")
+            time.sleep(delay)
+            delay *= 2
+
+# Limit tracking helpers
+def get_daily_sent_count():
+    today = time.strftime("%Y-%m-%d")
+    if os.path.exists(TRACKER_FILE):
+        try:
+            with open(TRACKER_FILE, "r") as f:
+                data = json.load(f)
+                if data.get("date") == today:
+                    return data.get("count", 0)
+        except Exception:
+            pass
+    return 0
+
+def increment_daily_sent_count():
+    today = time.strftime("%Y-%m-%d")
+    count = get_daily_sent_count() + 1
+    try:
+        with open(TRACKER_FILE, "w") as f:
+            json.dump({"date": today, "count": count}, f)
+    except Exception as e:
+        log_scheduler(f"[WARNING] Failed to write to tracker file: {e}")
+    return count
+
+def find_email_in_text(text):
+    if not text:
+        return None
+    emails = re.findall(r'\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b', text)
+    for email in emails:
+        if not any(x in email.lower() for x in ["noreply", "no-reply", "donotreply", "support@", "privacy@", "info@"]):
+            return email
+    return emails[0] if emails else None
+
+def extract_subject_and_body(email_text):
+    lines = email_text.strip().split("\n")
+    subject = "Application for Data Analyst Position"
+    body_lines = []
+    subject_found = False
+    
+    for line in lines:
+        if not subject_found and line.lower().startswith("subject:"):
+            subject = line[len("subject:"):].strip()
+            subject_found = True
+        else:
+            body_lines.append(line)
+            
+    body = "\n".join(body_lines).strip()
+    return subject, body
+
+def send_email_via_smtp(subject, body, recipient_email):
+    global stats
+    smtp_server = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
+    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    smtp_email = os.environ.get("SMTP_EMAIL")
+    smtp_password = os.environ.get("SMTP_PASSWORD")
+    
+    if not smtp_email or not smtp_password:
+        log_scheduler("[ERROR] SMTP credentials not set in .env. Skipping email sending.")
+        return False
+        
+    try:
+        msg = MIMEText(body, "plain", "utf-8")
+        msg["Subject"] = Header(subject, "utf-8")
+        msg["From"] = smtp_email
+        msg["To"] = recipient_email
+        
+        server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
+        server.starttls()
+        server.login(smtp_email, smtp_password)
+        server.sendmail(smtp_email, [recipient_email], msg.as_string())
+        server.quit()
+        
+        log_scheduler(f"[SUCCESS] SMTP Email successfully sent to: {recipient_email}")
+        stats["emails_sent"] += 1
+        return True
+    except Exception as smtp_err:
+        log_scheduler(f"[ERROR] SMTP sending failed to {recipient_email}: {smtp_err}")
+        return False
+
 # Helper functions from scrape_linkedin_jobs.py
 def safe_extract_any(locator, selectors, attribute=None, default=""):
     for selector in selectors:
@@ -90,17 +213,14 @@ def is_fresher_friendly(title, description, criteria_exp):
     desc_lower = description.lower()
     crit_lower = criteria_exp.lower()
     
-    # 1. Exclude seniority keywords in title
     exclude_title_words = ["senior", "lead", "sr", "principal", "manager", "head", "architect", "expert", "specialist"]
     for word in exclude_title_words:
         if re.search(r'\b' + re.escape(word) + r'\b', title_lower):
             return False
             
-    # 2. Check criteria if present
     if "mid-senior" in crit_lower or "director" in crit_lower or "executive" in crit_lower:
         return False
         
-    # 3. Check for strong fresher signals to override exclusions
     fresher_signals = [
         r'\bfreshers?\b', 
         r'\b0\s*-\s*1\s*(?:years?|yrs?)\b', 
@@ -112,7 +232,6 @@ def is_fresher_friendly(title, description, criteria_exp):
         if re.search(signal, desc_lower):
             return True
             
-    # 4. Check description for experience requirements of 2 or more years
     exp_patterns = [
         r'\b(?:2|3|4|5|6|7|8|9|10)\+?\s*(?:to|-)\s*\d+\s*(?:years?|yrs?)\b', 
         r'\b(?:2|3|4|5|6|7|8|9|10)\+\s*(?:years?|yrs?)\b',                  
@@ -177,16 +296,60 @@ def extract_website(description):
             return url
     return "Not Mentioned"
 
+def check_captcha(page):
+    url_lower = page.url.lower()
+    if "checkpoint/challenge" in url_lower or "captcha" in url_lower or page.locator("text='Security verification'").count() > 0 or page.locator("text='Please solve the puzzle'").count() > 0:
+        log_scheduler("[ALERT] CAPTCHA or Security Verification page loaded. Captcha handler is limited in headless environment!")
+
+def login_to_linkedin(page, email, password):
+    log_scheduler("[INFO] Starting LinkedIn login process...")
+    try:
+        def goto_login():
+            page.goto("https://www.linkedin.com/login", timeout=60000)
+            page.wait_for_load_state("networkidle")
+        
+        retry_action(goto_login, "Navigate to LinkedIn login page")
+        check_captcha(page)
+        
+        # Fill email
+        username_sel = "input#username"
+        page.wait_for_selector(username_sel, state="visible", timeout=10000)
+        page.locator(username_sel).fill(email)
+        
+        # Fill password
+        password_sel = "input#password"
+        page.wait_for_selector(password_sel, state="visible", timeout=10000)
+        page.locator(password_sel).fill(password)
+        
+        # Sign in click with navigation expect
+        submit_sel = "button[type='submit']"
+        page.wait_for_selector(submit_sel, state="visible", timeout=10000)
+        
+        def click_submit():
+            with page.expect_navigation(timeout=60000):
+                page.locator(submit_sel).click()
+            page.wait_for_load_state("networkidle")
+            
+        retry_action(click_submit, "Submit LinkedIn login form")
+        check_captcha(page)
+        
+        if "feed" in page.url or "checkpoint" not in page.url:
+            log_scheduler("[SUCCESS] Logged in to LinkedIn successfully.")
+        else:
+            log_scheduler(f"[WARNING] Login might have requested security check. Current URL: {page.url}")
+            check_captcha(page)
+    except Exception as login_err:
+        log_scheduler(f"[ERROR] Failed to login to LinkedIn: {login_err}")
+
 # Playwright LinkedIn Scraper core
 def scrape_linkedin_jobs() -> list:
+    global stats
     all_jobs = []
     seen_companies = set()
-    target_job_count = 30 # Kept at 30 to run reliably within web timeouts on Render
+    target_job_count = 30 
 
     with sync_playwright() as p:
-        # headless=True is mandatory for Render (no GUI)
         browser = p.chromium.launch(headless=True)
-        
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             viewport={"width": 1280, "height": 800}
@@ -194,14 +357,23 @@ def scrape_linkedin_jobs() -> list:
         page = context.new_page()
         page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
-        # Scrape jobs in Jaipur
+        # Log in if credentials available
+        linkedin_email = os.environ.get("LINKEDIN_EMAIL")
+        linkedin_password = os.environ.get("LINKEDIN_PASSWORD")
+        if linkedin_email and linkedin_password:
+            login_to_linkedin(page, linkedin_email, linkedin_password)
+
         city_name = "Jaipur"
         city_query = "Jaipur, Rajasthan, India"
         url_keyword = "Python"
         url_location = city_query.replace(" ", "%20").replace(",", "%2C")
         search_url = f"https://www.linkedin.com/jobs/search?keywords={url_keyword}&location={url_location}&distance=25"
 
-        page.goto(search_url, timeout=60000)
+        def goto_search():
+            page.goto(search_url, timeout=60000)
+            page.wait_for_load_state("networkidle")
+            
+        retry_action(goto_search, "Navigate to Search URL")
         page.wait_for_timeout(5000)
 
         # Scroll to load job cards
@@ -228,12 +400,17 @@ def scrape_linkedin_jobs() -> list:
                 no_change_iterations = 0
                 last_count = count
 
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
+            try:
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
+            except:
+                pass
             page.wait_for_timeout(random.randint(1500, 2000))
 
             see_more_btn = page.locator("button.infinite-scroller__show-more-button, button:has-text('See more jobs')").first
             if see_more_btn.count() > 0 and see_more_btn.is_visible():
                 try:
+                    btn_sel = "button.infinite-scroller__show-more-button" if page.locator("button.infinite-scroller__show-more-button").count() > 0 else "button:has-text('See more jobs')"
+                    page.wait_for_selector(btn_sel, state="visible", timeout=10000)
                     see_more_btn.click(force=True, timeout=3000)
                     page.wait_for_timeout(2000)
                 except:
@@ -263,24 +440,36 @@ def scrape_linkedin_jobs() -> list:
                 if comp_key in seen_companies:
                     continue
 
-                # Load job details
-                card.scroll_into_view_if_needed()
-                page.wait_for_timeout(500)
-                card.click(force=True, timeout=5000)
-                page.wait_for_timeout(2000)
+                # Details extraction with retry
+                def extract_card_details():
+                    card.scroll_into_view_if_needed()
+                    page.wait_for_timeout(500)
+                    card.wait_for(state="visible", timeout=10000)
+                    card.click(force=True, timeout=5000)
+                    page.wait_for_timeout(2000)
 
-                show_more_desc = page.locator("button.show-more-less-html__button, button:has-text('Show more'), button:has-text('See more')").first
-                if show_more_desc.count() > 0 and show_more_desc.is_visible():
-                    try:
-                        show_more_desc.click(force=True, timeout=2000)
-                        page.wait_for_timeout(500)
-                    except:
-                        pass
+                    show_more_desc = page.locator("button.show-more-less-html__button, button:has-text('Show more'), button:has-text('See more')").first
+                    if show_more_desc.count() > 0 and show_more_desc.is_visible():
+                        try:
+                            # Wait for selector of the show more button
+                            sm_sel = "button.show-more-less-html__button" if page.locator("button.show-more-less-html__button").count() > 0 else "button:has-text('Show more')"
+                            page.wait_for_selector(sm_sel, state="visible", timeout=10000)
+                            show_more_desc.click(force=True, timeout=2000)
+                            page.wait_for_timeout(500)
+                        except:
+                            pass
 
-                description = "Not Mentioned"
-                desc_el = page.locator("div.show-more-less-html__markup, .description__text").first
-                if desc_el.count() > 0:
-                    description = desc_el.inner_text().strip()
+                    description = "Not Mentioned"
+                    desc_el = page.locator("div.show-more-less-html__markup, .description__text").first
+                    if desc_el.count() > 0:
+                        description = desc_el.inner_text().strip()
+                    return description
+
+                try:
+                    description = retry_action(extract_card_details, f"Extract details for {job_title} at {company_name}")
+                except Exception as card_err:
+                    log_scheduler(f"[WARNING] Skipping card {i} due to details extraction failure: {card_err}")
+                    continue
 
                 criteria_items = page.locator("li.description__job-criteria-item")
                 criteria_count = criteria_items.count()
@@ -323,6 +512,7 @@ def scrape_linkedin_jobs() -> list:
 
                 all_jobs.append(job_data)
                 seen_companies.add(comp_key)
+                stats["jobs_scraped"] += 1
 
             except Exception as card_e:
                 logger.error(f"Error extracting card details: {card_e}")
@@ -333,6 +523,7 @@ def scrape_linkedin_jobs() -> list:
 
 # OpenRouter Email request helper
 def generate_cold_email(api_key, company_name, job_title, job_description) -> Optional[str]:
+    global stats
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -347,7 +538,10 @@ def generate_cold_email(api_key, company_name, job_title, job_description) -> Op
         "Do not use placeholders like [Company Name], [Job Title], [Your Name], or any brackets. "
         "Always replace them with the actual names provided. "
         "The response must start directly with 'Subject: [Subject Line]' followed by the email body. "
-        "Do not write any introductory or concluding conversation text, just start with Subject:."
+        "Do not write any introductory or concluding conversation text, just start with Subject:.\n"
+        "CRITICAL: Do NOT use any spam-trigger words or phrases such as 'Free', 'Guaranteed', "
+        "'Act now', 'Limited time', 'Click here', 'Risk-free', 'Special offer', 'Click below', or 'Hurry'. "
+        "Subject lines should be unique, professional, and personalized to the role and company."
     )
 
     exp_details = f"Data Analyst Intern at {RESUME_DATA['Experience'][0]['Company']} ({RESUME_DATA['Experience'][0]['Details']})"
@@ -388,21 +582,11 @@ Write a personalized cold email from {RESUME_DATA['Name']} to the recruiter or h
         response.raise_for_status()
         data = response.json()
         if "choices" in data and len(data["choices"]) > 0:
+            stats["emails_generated"] += 1
             return data["choices"][0]["message"]["content"].strip()
     except Exception as e:
         logger.error(f"OpenRouter API failed: {e}")
     return None
-
-# Scheduler logging helper
-def log_scheduler(message: str):
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log_entry = f"[{timestamp}] {message}\n"
-    print(log_entry.strip())
-    try:
-        with open(LOG_FILE, "a", encoding="utf-8") as f:
-            f.write(log_entry)
-    except Exception as e:
-        logger.error(f"Failed to log scheduler: {e}")
 
 # Scheduled worker pipeline
 def run_scheduled_pipeline():
@@ -427,7 +611,7 @@ def run_scheduled_pipeline():
                 
         log_scheduler(f"Successfully scraped {len(jobs)} jobs and updated {JOBS_CSV}.")
         
-        # 2. Email generation
+        # 2. Email generation and SMTP sending
         if jobs:
             api_key = os.environ.get("OPENROUTER_API_KEY")
             if not api_key:
@@ -439,7 +623,7 @@ def run_scheduled_pipeline():
             
             with open(EMAILS_CSV, "w", newline="", encoding="utf-8-sig") as out_f:
                 writer = csv.writer(out_f)
-                writer.writerow(["Company", "Job Title", "Generated Email", "Job URL"])
+                writer.writerow(["Company", "Job Title", "Generated Email", "Job URL", "Recipient Email"])
                 
                 for idx, job in enumerate(jobs):
                     email_content = generate_cold_email(
@@ -450,12 +634,33 @@ def run_scheduled_pipeline():
                     )
                     
                     if email_content:
-                        writer.writerow([job["Company Name"], job["Job Title"], email_content, job["Job Posting Link / URL"]])
+                        recipient = find_email_in_text(job["Required Skills"])
+                        writer.writerow([job["Company Name"], job["Job Title"], email_content, job["Job Posting Link / URL"], recipient or "Not Found"])
                         out_f.flush()
                         success_count += 1
-                    
-                    # Delay to prevent rate limits
-                    time.sleep(2.0)
+                        
+                        if recipient:
+                            daily_sent = get_daily_sent_count()
+                            if daily_sent >= MAX_DAILY_EMAILS:
+                                log_scheduler(f"[LIMIT REACHED] Daily sending limit of {MAX_DAILY_EMAILS} reached. Skipping further sends.")
+                                break
+                            
+                            subject, body = extract_subject_and_body(email_content)
+                            sent_ok = send_email_via_smtp(subject, body, recipient)
+                            if sent_ok:
+                                new_count = increment_daily_sent_count()
+                                log_scheduler(f"Daily email count updated to: {new_count}/{MAX_DAILY_EMAILS}")
+                                
+                                if idx < len(jobs) - 1 and new_count < MAX_DAILY_EMAILS:
+                                    delay = random.randint(30, 60)
+                                    log_scheduler(f"Waiting {delay}s between SMTP sends...")
+                                    time.sleep(delay)
+                        
+                    else:
+                        log_scheduler(f"Skipped email generation for {job['Company Name']}")
+                        
+                    # Delay to prevent API rate limits
+                    time.sleep(2.5)
                     
             log_scheduler(f"Successfully generated {success_count} emails and updated {EMAILS_CSV}.")
         else:
@@ -481,7 +686,7 @@ def home():
     if os.path.exists(JOBS_CSV):
         try:
             with open(JOBS_CSV, "r", encoding="utf-8") as f:
-                jobs_count = sum(1 for _ in f) - 1 # exclude header
+                jobs_count = sum(1 for _ in f) - 1
         except:
             pass
             
@@ -489,7 +694,7 @@ def home():
     if os.path.exists(EMAILS_CSV):
         try:
             with open(EMAILS_CSV, "r", encoding="utf-8") as f:
-                emails_count = sum(1 for _ in f) - 1 # exclude header
+                emails_count = sum(1 for _ in f) - 1
         except:
             pass
             
@@ -497,7 +702,7 @@ def home():
     if os.path.exists(LOG_FILE):
         try:
             with open(LOG_FILE, "r", encoding="utf-8") as f:
-                scheduler_logs = "".join(f.readlines()[-30:]) # last 30 log lines
+                scheduler_logs = "".join(f.readlines()[-30:])
         except:
             pass
             
@@ -516,7 +721,7 @@ def scrape():
     
     if request.method == "POST" or request.args.get("trigger") == "1":
         try:
-            logger.info("Triggering manual LinkedIn scrape...")
+            log_scheduler("Triggering manual LinkedIn scrape via Flask route...")
             jobs = scrape_linkedin_jobs()
             
             headers = [
@@ -530,7 +735,7 @@ def scrape():
                 writer.writeheader()
                 for job in jobs:
                     writer.writerow(job)
-            logger.info(f"Scraped {len(jobs)} jobs successfully.")
+            log_scheduler(f"Scraped {len(jobs)} jobs successfully via Flask route.")
             
         except FileNotFoundError as fnf:
             error = str(fnf)
@@ -540,7 +745,6 @@ def scrape():
             error = f"LinkedIn Scraper failed (LinkedIn captcha/block or timeout): {str(e)}"
             logger.exception("Manual scrape failed")
     else:
-        # Load from existing file if GET request
         if os.path.exists(JOBS_CSV):
             try:
                 with open(JOBS_CSV, mode="r", encoding="utf-8") as f:
@@ -558,7 +762,7 @@ def generate_emails_route():
     
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
-        error = "OPENROUTER_API_KEY environment variable is not set. Please set it in your environment or Render dashboard."
+        error = "OPENROUTER_API_KEY environment variable is not set. Please set it in your environment."
         return render_template("index.html", email_error=error)
         
     if request.method == "POST" or request.args.get("trigger") == "1":
@@ -581,10 +785,9 @@ def generate_emails_route():
             
         success_count = 0
         try:
-            import json
             with open(EMAILS_CSV, "w", newline="", encoding="utf-8-sig") as out_f:
                 writer = csv.writer(out_f)
-                writer.writerow(["Company", "Job Title", "Generated Email", "Job URL"])
+                writer.writerow(["Company", "Job Title", "Generated Email", "Job URL", "Recipient Email"])
                 
                 for idx, job in enumerate(jobs):
                     comp = job.get("Company Name")
@@ -595,7 +798,8 @@ def generate_emails_route():
                     email_content = generate_cold_email(api_key, comp, title, skills)
                     
                     if email_content:
-                        writer.writerow([comp, title, email_content, url])
+                        recipient = find_email_in_text(skills)
+                        writer.writerow([comp, title, email_content, url, recipient or "Not Found"])
                         out_f.flush()
                         success_count += 1
                         
@@ -603,11 +807,31 @@ def generate_emails_route():
                             "Company": comp,
                             "Job Title": title,
                             "Generated Email": email_content,
-                            "Job URL": url
+                            "Job URL": url,
+                            "Recipient Email": recipient or "Not Found"
                         })
-                    time.sleep(2.0) # rate limiting delay
+                        
+                        # SMTP sending if recipient email found and credentials configured
+                        if recipient:
+                            daily_sent = get_daily_sent_count()
+                            if daily_sent >= MAX_DAILY_EMAILS:
+                                log_scheduler(f"[LIMIT REACHED] Daily sending limit of {MAX_DAILY_EMAILS} reached. Saving drafts only.")
+                            else:
+                                subject, body = extract_subject_and_body(email_content)
+                                sent_ok = send_email_via_smtp(subject, body, recipient)
+                                if sent_ok:
+                                    new_count = increment_daily_sent_count()
+                                    log_scheduler(f"Daily email count updated to: {new_count}/{MAX_DAILY_EMAILS}")
+                                    
+                                    # Wait 30-60 seconds for deliverability before continuing
+                                    if idx < len(jobs) - 1 and new_count < MAX_DAILY_EMAILS:
+                                        delay = random.randint(30, 60)
+                                        log_scheduler(f"Waiting {delay}s before next SMTP send...")
+                                        time.sleep(delay)
+                        
+                    # Delay to prevent API rate limits
+                    time.sleep(2.5)
                     
-            # Save to JSON file as well
             with open(EMAILS_JSON, "w", encoding="utf-8") as json_f:
                 json.dump(emails, json_f, indent=4, ensure_ascii=False)
                     
@@ -615,10 +839,8 @@ def generate_emails_route():
             error = f"Error generating emails: {str(e)}"
             logger.exception("Email generation failed")
     else:
-        # Load from existing file if GET request
         if os.path.exists(EMAILS_JSON):
             try:
-                import json
                 with open(EMAILS_JSON, mode="r", encoding="utf-8") as f:
                     emails = json.load(f)
             except Exception as e:
@@ -634,5 +856,4 @@ def generate_emails_route():
     return render_template("index.html", emails=emails, email_error=error, emails_count=len(emails))
 
 if __name__ == "__main__":
-    # Local fallback startup
     app.run(host="127.0.0.1", port=8000, debug=True)
