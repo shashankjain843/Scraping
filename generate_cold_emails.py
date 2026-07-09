@@ -217,7 +217,7 @@ def send_email_via_smtp(subject, body, recipient_email):
         else:
             log_to_file(f"[WARNING] Resume file (my_resume.pdf or my_resume.docx) not found in {dir_path}. Sending without attachment.")
             
-        server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
+        server = smtplib.SMTP(smtp_server, smtp_port, timeout=120)
         server.starttls()
         server.login(smtp_email, smtp_password)
         server.sendmail(smtp_email, [recipient_email], msg.as_string())

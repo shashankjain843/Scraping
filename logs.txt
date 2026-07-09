@@ -378,3 +378,42 @@ Call log:
 [2026-07-09 20:27:05] [WARNING] DOCX to PDF conversion failed. Falling back to original DOCX.
 [2026-07-09 20:27:05] [INFO] Attached resume: my_resume.docx to email.
 [2026-07-09 20:27:10] [SUCCESS] SMTP Email successfully sent to: jshreyansh656@gmail.com
+[2026-07-09 21:02:41] ============================================================
+[2026-07-09 21:02:41] AUTOMATIC COLD EMAIL GENERATOR (OPENROUTER)
+[2026-07-09 21:02:41] ============================================================
+[2026-07-09 21:02:42] [INFO] Resume read successfully from: C:\Users\Shashank\Downloads\Linked in\my_resume.docx
+[2026-07-09 21:02:42] [INFO] Parsing resume using AI parser...
+[2026-07-09 21:02:52] [INFO] Resume parsed successfully by AI.
+[2026-07-09 21:02:52] [READY] Resume loaded for: SHASHANK JAIN - Data Analyst
+[2026-07-09 21:02:55] 
+--- MODE A: Standalone (Manual Cold Email Generator) ---
+[2026-07-09 21:03:12] Generating email template using OpenRouter API...
+[2026-07-09 21:03:16] [SUCCESS] Email successfully saved to: cold_email_output.txt
+[2026-07-09 21:03:24] [INFO] Attached resume: my_resume.pdf to email.
+[2026-07-09 21:04:00] [ERROR] SMTP sending failed to realshashankjain@gmail.com: Server not connected
+[2026-07-09 21:04:17] ============================================================
+[2026-07-09 21:04:17] AUTOMATIC COLD EMAIL GENERATOR (OPENROUTER)
+[2026-07-09 21:04:17] ============================================================
+[2026-07-09 21:04:17] [INFO] Resume read successfully from: C:\Users\Shashank\Downloads\Linked in\my_resume.docx
+[2026-07-09 21:04:17] [INFO] Parsing resume using AI parser...
+[2026-07-09 21:04:26] [INFO] Resume parsed successfully by AI.
+[2026-07-09 21:04:26] [READY] Resume loaded for: SHASHANK JAIN - Data Analyst
+[2026-07-09 21:04:31] 
+--- MODE A: Standalone (Manual Cold Email Generator) ---
+[2026-07-09 21:04:43] Generating email template using OpenRouter API...
+[2026-07-09 21:04:48] [SUCCESS] Email successfully saved to: cold_email_output.txt
+[2026-07-09 21:04:57] [INFO] Attached resume: my_resume.pdf to email.
+[2026-07-09 21:05:32] [ERROR] SMTP sending failed to jshreyansh656@gmail.com: Server not connected
+[2026-07-09 21:09:03] ============================================================
+[2026-07-09 21:09:03] AUTOMATIC COLD EMAIL GENERATOR (OPENROUTER)
+[2026-07-09 21:09:03] ============================================================
+[2026-07-09 21:09:03] [INFO] Resume read successfully from: C:\Users\Shashank\Downloads\Linked in\my_resume.docx
+[2026-07-09 21:09:03] [INFO] Parsing resume using AI parser...
+[2026-07-09 21:09:12] [INFO] Resume parsed successfully by AI.
+[2026-07-09 21:09:12] [READY] Resume loaded for: SHASHANK JAIN - Data Analyst
+[2026-07-09 21:09:16] 
+--- MODE A: Standalone (Manual Cold Email Generator) ---
+[2026-07-09 21:09:34] Generating email template using OpenRouter API...
+[2026-07-09 21:09:37] [SUCCESS] Email successfully saved to: cold_email_output.txt
+[2026-07-09 21:09:47] [INFO] Attached resume: my_resume.pdf to email.
+[2026-07-09 21:10:28] [SUCCESS] SMTP Email successfully sent to: jshreyansh656@gmail.com

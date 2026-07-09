@@ -254,7 +254,7 @@ def send_email_via_smtp(subject, body, recipient_email):
         else:
             log_scheduler(f"[WARNING] Resume file (my_resume.pdf or my_resume.docx) not found in {dir_path}. Sending without attachment.")
             
-        server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
+        server = smtplib.SMTP(smtp_server, smtp_port, timeout=120)
         server.starttls()
         server.login(smtp_email, smtp_password)
         server.sendmail(smtp_email, [recipient_email], msg.as_string())
@@ -496,7 +496,7 @@ def scrape_linkedin_jobs(cities=None, keyword="Data Analyst", use_login=False) -
             city_query = city_mappings.get(city_clean, f"{city_clean}, India")
             url_keyword = urllib.parse.quote(keyword)
             url_location = urllib.parse.quote(city_query)
-            search_url = f"https://www.linkedin.com/jobs/search?keywords={url_keyword}&location={url_location}&distance=25"
+            search_url = f"https://www.linkedin.com/jobs/search?keywords={url_keyword}&location={url_location}&distance=25&sortBy=DD&f_TPR=r86400"
 
             log_scheduler(f"Scraping city: {city_clean} ({city_query}) for keyword '{keyword}'...")
             

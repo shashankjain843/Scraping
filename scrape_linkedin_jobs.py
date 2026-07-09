@@ -769,71 +769,18 @@ def main():
                 log_to_file("-"*50)
                 
                 try:
-                    def navigate_main():
-                        page.goto("https://www.linkedin.com/jobs/", timeout=60000)
+                    encoded_keyword = urllib.parse.quote(keyword)
+                    encoded_location = urllib.parse.quote(location)
+                    search_url = f"https://www.linkedin.com/jobs/search?keywords={encoded_keyword}&location={encoded_location}&sortBy=DD&f_TPR=r86400"
+                    log_to_file(f"Navigating directly to search URL: {search_url}")
+                    
+                    def navigate_direct_search():
+                        page.goto(search_url, timeout=60000)
                         page.wait_for_load_state("networkidle")
+                        
+                    retry_action(navigate_direct_search, "Navigate directly to search URL", max_attempts=2)
+                    page.wait_for_timeout(random.randint(4000, 6000))
                     
-                    retry_action(navigate_main, "Navigate to LinkedIn jobs portal")
-                    page.wait_for_timeout(random.randint(2000, 3000))
-                    check_captcha(page)
-                    
-                    search_success = False
-                    try:
-                        keyword_sel = "input[name='keywords'], input[aria-label='Search job titles or companies']"
-                        loc_sel = "input[name='location'], input[aria-label='Location']"
-                        
-                        # Wait for inputs to be visible
-                        page.wait_for_selector(keyword_sel, state="visible", timeout=10000)
-                        keyword_input = page.locator(keyword_sel).first
-                        location_input = page.locator(loc_sel).first
-                        
-                        if keyword_input.count() > 0 and location_input.count() > 0:
-                            def perform_search():
-                                page.wait_for_selector(keyword_sel, state="visible", timeout=10000)
-                                keyword_input.click()
-                                page.keyboard.press("Control+A")
-                                page.keyboard.press("Backspace")
-                                keyword_input.fill(keyword)
-                                page.wait_for_timeout(500)
-                                
-                                page.wait_for_selector(loc_sel, state="visible", timeout=10000)
-                                location_input.click()
-                                page.keyboard.press("Control+A")
-                                page.keyboard.press("Backspace")
-                                location_input.fill(location)
-                                page.wait_for_timeout(500)
-                                
-                                search_btn_sel = "button.search-button, button[type='submit']"
-                                search_btn = page.locator(search_btn_sel).first
-                                
-                                page.wait_for_selector(search_btn_sel, state="visible", timeout=10000)
-                                with page.expect_navigation(timeout=60000):
-                                    if search_btn.count() > 0:
-                                        search_btn.click()
-                                    else:
-                                        page.keyboard.press("Enter")
-                                page.wait_for_load_state("networkidle")
-                            
-                            retry_action(perform_search, f"Fill and submit search for '{keyword}' in '{location}'")
-                            search_success = True
-                            log_to_file("Search triggered via guest input fields.")
-                            page.wait_for_timeout(random.randint(4000, 6000))
-                    except Exception as search_err:
-                        log_to_file(f"[INFO] Could not search using guest inputs: {search_err}. Falling back to direct URL...")
-                        
-                    if not search_success or "search" not in page.url.lower():
-                        encoded_keyword = urllib.parse.quote(keyword)
-                        encoded_location = urllib.parse.quote(location)
-                        search_url = f"https://www.linkedin.com/jobs/search?keywords={encoded_keyword}&location={encoded_location}"
-                        log_to_file(f"Navigating directly to search URL: {search_url}")
-                        
-                        def navigate_direct_search():
-                            page.goto(search_url, timeout=60000)
-                            page.wait_for_load_state("networkidle")
-                            
-                        retry_action(navigate_direct_search, "Navigate directly to search URL")
-                        page.wait_for_timeout(random.randint(4000, 6000))
-                        
                     check_captcha(page)
                     scrape_search_results(page, context, keyword, location, seen_urls)
                     
