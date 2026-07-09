@@ -4,6 +4,7 @@ import time
 import json
 import sys
 import requests
+from docx import Document
 
 # Reconfigure stdout to use UTF-8 to prevent UnicodeEncodeError in Windows terminals
 if hasattr(sys.stdout, 'reconfigure'):
@@ -17,8 +18,15 @@ if hasattr(sys.stdout, 'reconfigure'):
 MODEL_NAME = "openai/gpt-4o-mini"
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-# Resume Data (Hardcoded as specified)
-RESUME_DATA = {
+
+# Resume file ka path — absolute path taaki script kahan se bhi chale, file mile
+RESUME_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "my_resume.docx")
+
+# Global resume data — main() mein dynamically load hoga
+RESUME_DATA = None
+
+# Fallback resume (agar .docx file na mile tab use hoga)
+RESUME_DATA_FALLBACK = {
     "Name": "Shashank Jain",
     "Role": "Data Analyst",
     "Skills": ["Python", "SQL", "Pandas", "NumPy", "Power BI", "Tableau", "PostgreSQL", "MongoDB", "FastAPI", "LangChain", "RAG", "EDA"],
@@ -47,6 +55,85 @@ RESUME_DATA = {
         "GitHub": "github.com/shashankjain843"
     }
 }
+
+def parse_resume_from_doc(filepath, api_key):
+    """
+    STEP 3: .docx file se raw text nikalega, phir OpenRouter AI se
+    structured JSON resume banayega aur return karega.
+    """
+    # Step 3A: .docx file se saara text nikalo
+    try:
+        doc = Document(filepath)
+        raw_text = "\n".join([para.text for para in doc.paragraphs if para.text.strip()])
+    except Exception as docx_err:
+        # Fallback: Agar docx parser parse nahi kar paaye (jaise plain text file renamed docx), toh standard file handling se read karo
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                raw_text = f.read().strip()
+        except Exception as txt_err:
+            print(f"[ERROR] Resume file read nahi hui (Docx error: {docx_err}, Plain text error: {txt_err})")
+            return None
+
+    if not raw_text.strip():
+        print("[ERROR] Resume file empty hai ya text nahi mila!")
+        return None
+
+    print(f"[INFO] Resume file padh li: {filepath}")
+    print("[INFO] AI se resume parse kar raha hoon...")
+
+    # Step 3B: OpenRouter AI se structured JSON banao
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+
+    prompt = f"""Neeche resume ka raw text hai. Isse ek structured JSON mein convert karo.
+JSON ka format bilkul yeh hona chahiye (koi extra text ya explanation nahi, sirf JSON):
+{{
+    "Name": "...",
+    "Role": "...",
+    "Skills": ["skill1", "skill2"],
+    "Experience": [
+        {{"Role": "...", "Company": "...", "Details": "..."}}
+    ],
+    "Projects": [
+        {{"Name": "...", "Technologies": ["tech1", "tech2"], "Details": "..."}}
+    ],
+    "Contact": {{"Phone": "...", "LinkedIn": "...", "GitHub": "..."}}
+}}
+
+Resume Text:
+{raw_text}
+"""
+
+    payload = {
+        "model": MODEL_NAME,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.1
+    }
+
+    try:
+        response = requests.post(OPENROUTER_API_URL, headers=headers, json=payload, timeout=30)
+        response.raise_for_status()
+        content = response.json()["choices"][0]["message"]["content"].strip()
+
+        # Agar AI ne code block mein wrap karke diya to clean karo
+        if content.startswith("```"):
+            lines = content.split("\n")
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            content = "\n".join(lines).strip()
+
+        resume_data = json.loads(content)
+        print("[INFO] Resume successfully parse ho gaya! [OK]")
+        return resume_data
+
+    except json.JSONDecodeError as e:
+        print(f"[ERROR] AI ne valid JSON nahi diya: {e}")
+        print(f"[DEBUG] AI response tha: {content[:300]}")
+        return None
+    except Exception as e:
+        print(f"[ERROR] Resume parse karne mein problem: {e}")
+        return None
 
 def get_api_key():
     """Retrieve the API key from the environment variable or .env file."""
@@ -165,11 +252,11 @@ def run_mode_a(api_key):
             print(f"[ERROR] Could not read file: {e}. Please enter description manually.")
             return
     else:
-        if first_input != "DONE":
+        if first_input.strip().upper() != "DONE":
             lines.append(first_input)
         while True:
             line = input()
-            if line.strip() == "DONE":
+            if line.strip().upper() == "DONE":
                 break
             lines.append(line)
         job_desc = "\n".join(lines)
@@ -332,16 +419,32 @@ def run_mode_b(api_key):
         print(f"[ERROR] Failed writing to output file: {e}")
 
 def main():
+    global RESUME_DATA
+
     print("==================================================")
     print("      AUTOMATIC COLD EMAIL GENERATOR (OPENROUTER) ")
     print("==================================================")
-    
+
+    # STEP 4: Pehle API key lo, phir resume .docx se parse karo
     api_key = get_api_key()
-    
+
+    if os.path.exists(RESUME_FILE):
+        # .docx file mili — dynamically parse karo
+        RESUME_DATA = parse_resume_from_doc(RESUME_FILE, api_key)
+        if RESUME_DATA is None:
+            print("[WARNING] Resume parse nahi hua. Fallback (hardcoded) resume use kar raha hoon.")
+            RESUME_DATA = RESUME_DATA_FALLBACK
+    else:
+        # File nahi mili — fallback use karo
+        print(f"[WARNING] '{RESUME_FILE}' file nahi mili! Fallback (hardcoded) resume use kar raha hoon.")
+        RESUME_DATA = RESUME_DATA_FALLBACK
+
+    print(f"\n[READY] Resume loaded: {RESUME_DATA.get('Name', 'Unknown')} - {RESUME_DATA.get('Role', 'Unknown')}")
+
     print("\nSelect Mode:")
     print("1. Mode A – Standalone (Enter job details manually)")
     print("2. Mode B – Scraper Integration (Process LinkedIn jobs from CSV)")
-    
+
     choice = input("Enter choice (1 or 2): ").strip()
     if choice == "1":
         run_mode_a(api_key)
