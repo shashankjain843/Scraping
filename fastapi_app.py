@@ -264,7 +264,7 @@ def job_scraper_worker(task_id: str, cities_list: List[Dict[str, str]], target_j
     
     import random
     from playwright.sync_api import sync_playwright
-    from scrape_linkedin_freshers import (
+    from scrape_linkedin_jobs import (
         safe_extract_any,
         is_valid_title,
         is_fresher_friendly,

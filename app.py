@@ -62,7 +62,7 @@ RESUME_DATA = {
     }
 }
 
-# Helper functions from scrape_linkedin_freshers.py
+# Helper functions from scrape_linkedin_jobs.py
 def safe_extract_any(locator, selectors, attribute=None, default=""):
     for selector in selectors:
         try:
