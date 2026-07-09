@@ -258,20 +258,35 @@ Write a personalized cold email from {resume_data.get('Name')} to the recruiter 
     return None
 
 # Task Workers (Threads)
-def job_scraper_worker(task_id: str, cities_list: List[Dict[str, str]], target_job_count: int, headless: bool):
+def job_scraper_worker(task_id: str, cities_list: List[Dict[str, str]], target_job_count: int, headless: bool, keyword: str = "Data Analyst"):
     tracker = TaskTracker(task_id, "job_scraper")
-    tracker.add_log("Starting LinkedIn Scraper pipeline...")
+    tracker.add_log(f"Starting LinkedIn Scraper pipeline for keyword '{keyword}'...")
     
     import random
+    import re
     from playwright.sync_api import sync_playwright
     from scrape_linkedin_jobs import (
         safe_extract_any,
-        is_valid_title,
         is_fresher_friendly,
         extract_skills,
         extract_salary,
         extract_website
     )
+
+    def is_valid_title_local(title, search_keyword):
+        title_lower = title.lower()
+        keyword_lower = search_keyword.lower()
+        words = [w.strip() for w in keyword_lower.replace("or", "").replace("and", "").split() if len(w.strip()) > 1]
+        
+        exclude_title_words = ["senior", "lead", "sr", "principal", "manager", "head", "architect", "expert", "specialist"]
+        for word in exclude_title_words:
+            if re.search(r'\b' + re.escape(word) + r'\b', title_lower):
+                return False
+                
+        if not words:
+            return True
+            
+        return any(w in title_lower for w in words)
 
     all_jobs = []
     seen_companies = set()
@@ -298,7 +313,8 @@ def job_scraper_worker(task_id: str, cities_list: List[Dict[str, str]], target_j
                 tracker.update_progress((c_idx / total_cities) * 100, f"Scanning {city_name}...")
                 tracker.add_log(f"Scraping city: {city_name} ({city_query})")
 
-                url_keyword = "%28%22Data%20Analyst%22%20OR%20%22Data%20Analytics%22%29"
+                import urllib.parse
+                url_keyword = urllib.parse.quote(keyword)
                 url_location = city_query.replace(" ", "%20").replace(",", "%2C")
                 search_url = f"https://www.linkedin.com/jobs/search?keywords={url_keyword}&location={url_location}&distance=25"
 
@@ -373,7 +389,7 @@ def job_scraper_worker(task_id: str, cities_list: List[Dict[str, str]], target_j
 
                         clean_url = job_url.split("?")[0]
 
-                        if not is_valid_title(job_title):
+                        if not is_valid_title_local(job_title, keyword):
                             continue
 
                         comp_key = company_name.strip().lower()
@@ -736,6 +752,7 @@ async def start_scraping_endpoint(payload: dict):
     cities_input = payload.get("cities", ["Delhi", "Noida", "Gurgaon", "Jaipur"])
     limit = int(payload.get("limit", 100))
     headless = bool(payload.get("headless", True))
+    keyword = payload.get("keyword", "Data Analyst").strip()
     
     city_mappings = {
         "Delhi": {"name": "Delhi", "query": "Delhi, India"},
@@ -755,7 +772,7 @@ async def start_scraping_endpoint(payload: dict):
     task_id = str(uuid.uuid4())[:8]
     
     # Run in a background thread to prevent blocking the event loop
-    t = threading.Thread(target=job_scraper_worker, args=(task_id, cities_list, limit, headless))
+    t = threading.Thread(target=job_scraper_worker, args=(task_id, cities_list, limit, headless, keyword))
     t.start()
     
     return {"task_id": task_id, "message": "Job scraping started."}
@@ -856,3 +873,137 @@ async def serve_dashboard():
     with open(template_path, "r", encoding="utf-8") as f:
         html_content = f.read()
     return HTMLResponse(content=html_content)
+
+import smtplib
+from email.mime.text import MIMEText
+from email.header import Header
+
+def send_email_via_smtp(subject, body, recipient_email):
+    smtp_server = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
+    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    smtp_email = os.environ.get("SMTP_EMAIL")
+    smtp_password = os.environ.get("SMTP_PASSWORD")
+    
+    if not smtp_email or not smtp_password:
+        logger.error("SMTP credentials not set in .env. Skipping email sending.")
+        return False
+        
+    try:
+        msg = MIMEText(body, "plain", "utf-8")
+        msg["Subject"] = Header(subject, "utf-8")
+        msg["From"] = smtp_email
+        msg["To"] = recipient_email
+        
+        server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
+        server.starttls()
+        server.login(smtp_email, smtp_password)
+        server.sendmail(smtp_email, [recipient_email], msg.as_string())
+        server.quit()
+        return True
+    except Exception as smtp_err:
+        logger.error(f"SMTP sending failed to {recipient_email}: {smtp_err}")
+        return False
+
+def update_email_send_status(job_url, email_address, status):
+    normalized_url = job_url.split("?")[0].rstrip("/")
+    emails_json = "generated_cold_emails.json"
+    emails_csv = "generated_cold_emails.csv"
+    
+    # Update JSON
+    if os.path.exists(emails_json):
+        try:
+            with open(emails_json, "r", encoding="utf-8") as f:
+                emails = json.load(f)
+            updated = False
+            for email in emails:
+                url = email.get("Job URL", "") or email.get("url", "") or email.get("Job Posting Link / URL", "")
+                if url and url.split("?")[0].rstrip("/") == normalized_url:
+                    email["Recipient Email"] = email_address
+                    email["Send Status"] = status
+                    updated = True
+            if updated:
+                with open(emails_json, "w", encoding="utf-8") as f:
+                    json.dump(emails, f, indent=4, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"Failed to update email status in JSON: {e}")
+
+    # Update CSV
+    if os.path.exists(emails_csv):
+        try:
+            rows = []
+            headers = []
+            with open(emails_csv, "r", encoding="utf-8-sig") as f:
+                reader = csv.DictReader(f)
+                headers = list(reader.fieldnames or [])
+                if "Recipient Email" not in headers:
+                    headers.append("Recipient Email")
+                if "Send Status" not in headers:
+                    headers.append("Send Status")
+                rows = list(reader)
+                
+            updated = False
+            for row in rows:
+                url = row.get("Job URL", "") or row.get("Job Posting Link / URL", "")
+                if url and url.split("?")[0].rstrip("/") == normalized_url:
+                    row["Recipient Email"] = email_address
+                    row["Send Status"] = status
+                    updated = True
+                    
+            if updated:
+                with open(emails_csv, "w", newline="", encoding="utf-8-sig") as f:
+                    writer = csv.DictWriter(f, fieldnames=headers)
+                    writer.writeheader()
+                    for r in rows:
+                        row_to_write = {h: r.get(h, "") for h in headers}
+                        writer.writerow(row_to_write)
+        except Exception as e:
+            logger.error(f"Failed to update email status in CSV: {e}")
+
+@app.post("/api/send-email")
+async def send_email_api_endpoint(payload: dict):
+    recipient_email = payload.get("recipient_email", "").strip()
+    company = payload.get("company", "").strip()
+    title = payload.get("title", "").strip()
+    subject = payload.get("subject", "").strip()
+    body = payload.get("body", "").strip()
+    job_url = payload.get("job_url", "").strip()
+    
+    if not recipient_email or "@" not in recipient_email:
+        raise HTTPException(status_code=400, detail="Invalid recipient email address.")
+        
+    sent_ok = send_email_via_smtp(subject, body, recipient_email)
+    if sent_ok:
+        update_email_send_status(job_url, recipient_email, "Sent Successfully")
+        return {"status": "success", "message": f"Email successfully sent to {recipient_email}"}
+    else:
+        update_email_send_status(job_url, recipient_email, "Send Failed")
+        raise HTTPException(status_code=500, detail="SMTP sending failed. Check credentials.")
+
+from apply_helper import auto_apply_to_job, update_job_status_in_files
+
+@app.post("/api/apply")
+async def start_apply_endpoint(payload: dict):
+    job_url = payload.get("job_url", "").strip()
+    company = payload.get("company", "Unknown").strip()
+    title = payload.get("title", "Unknown").strip()
+    
+    if not job_url:
+        raise HTTPException(status_code=400, detail="job_url is required")
+        
+    task_id = str(uuid.uuid4())[:8]
+    
+    def apply_worker():
+        tracker = TaskTracker(task_id, "job_application")
+        tracker.add_log(f"Starting auto apply for {title} at {company}...")
+        try:
+            update_job_status_in_files(job_url, "Applying...")
+            status = auto_apply_to_job(job_url, company, title)
+            update_job_status_in_files(job_url, status)
+            tracker.complete()
+        except Exception as e:
+            tracker.fail(str(e))
+            update_job_status_in_files(job_url, "Failed")
+            
+    t = threading.Thread(target=apply_worker)
+    t.start()
+    return {"task_id": task_id, "message": "Job application worker started."}
