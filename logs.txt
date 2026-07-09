@@ -1,0 +1,311 @@
+[2026-07-09 12:46:29] ============================================================
+[2026-07-09 12:46:29] LINKEDIN JOBS SCRAPER INITIALIZING
+[2026-07-09 12:46:29] ============================================================
+[2026-07-09 12:46:29] [INFO] Migrating CSV headers for linkedin_fresher_data_analyst_jobs_merged.csv to support new fields...
+[2026-07-09 12:46:29] [INFO] Migration of linkedin_fresher_data_analyst_jobs_merged.csv complete.
+[2026-07-09 12:46:30] [INFO] Loaded 740 unique existing job URLs for deduplication.
+[2026-07-09 12:46:30] Launching Chromium browser (headless=False)...
+[2026-07-09 12:46:31] [INFO] Starting LinkedIn login process...
+[2026-07-09 12:47:03] Action 'Navigate to LinkedIn login page' failed (attempt 1/3). Retrying in 2s... Error: Timeout 30000ms exceeded.
+[2026-07-09 12:47:36] Action 'Navigate to LinkedIn login page' failed (attempt 2/3). Retrying in 4s... Error: Timeout 30000ms exceeded.
+[2026-07-09 12:48:11] Action 'Navigate to LinkedIn login page' failed after 3 attempts. Error: Timeout 30000ms exceeded.
+[2026-07-09 12:48:11] [ERROR] Failed to login to LinkedIn: Timeout 30000ms exceeded.
+[2026-07-09 12:48:11] 
+--------------------------------------------------
+[2026-07-09 12:48:11] Scraping: 'Data Analyst' in 'Jaipur'
+[2026-07-09 12:48:11] --------------------------------------------------
+[2026-07-09 12:48:27] [INFO] Could not search using guest inputs: Page.wait_for_selector: Timeout 10000ms exceeded.
+Call log:
+  - waiting for locator("input[name='keywords'], input[aria-label='Search job titles or companies']") to be visible
+. Falling back to direct URL...
+[2026-07-09 12:48:27] Navigating directly to search URL: https://www.linkedin.com/jobs/search?keywords=Data%20Analyst&location=Jaipur
+[2026-07-09 12:48:37] Scrolling to load job cards...
+[2026-07-09 12:49:34] No more new jobs loading.
+[2026-07-09 12:49:34] Finished scrolling. Loaded 51 job cards. Starting extraction for up to 51 jobs...
+[2026-07-09 12:49:39] [SCRAPED: Data Analyst in Jaipur] 1 jobs found -> 'Python + Data' at 'Auriga IT'
+[2026-07-09 12:49:45] [SCRAPED: Data Analyst in Jaipur] 2 jobs found -> 'Management Information System Supervisor' at 'Eat Better Co'
+[2026-07-09 12:49:52] [SCRAPED: Data Analyst in Jaipur] 3 jobs found -> 'SOC Analyst _ 2-5 Years _ Jaipur' at 'Tata Communications'
+[2026-07-09 12:49:58] [SCRAPED: Data Analyst in Jaipur] 4 jobs found -> 'Custom Software Engineer' at 'Accenture in India'
+[2026-07-09 12:50:02] [SCRAPED: Data Analyst in Jaipur] 5 jobs found -> 'Custom Software Engineer' at 'Accenture in India'
+[2026-07-09 12:50:05] [SCRAPED: Data Analyst in Jaipur] 6 jobs found -> 'Custom Software Engineer' at 'Accenture in India'
+[2026-07-09 12:50:09] [SCRAPED: Data Analyst in Jaipur] 7 jobs found -> 'Custom Software Engineer' at 'Accenture in India'
+[2026-07-09 12:50:13] [SCRAPED: Data Analyst in Jaipur] 8 jobs found -> 'Custom Software Engineer' at 'Accenture in India'
+[2026-07-09 12:50:17] [SCRAPED: Data Analyst in Jaipur] 9 jobs found -> 'Custom Software Engineer' at 'Accenture in India'
+[2026-07-09 12:50:23] [SCRAPED: Data Analyst in Jaipur] 10 jobs found -> 'Technology Support Engineer' at 'Accenture in India'
+[2026-07-09 12:50:27] [SCRAPED: Data Analyst in Jaipur] 11 jobs found -> 'Application Support Engineer' at 'Accenture in India'
+[2026-07-09 12:50:32] [SCRAPED: Data Analyst in Jaipur] 12 jobs found -> 'Custom Software Engineer' at 'Accenture in India'
+[2026-07-09 12:50:36] [SCRAPED: Data Analyst in Jaipur] 13 jobs found -> 'Custom Software Engineer' at 'Accenture in India'
+[2026-07-09 12:50:39] [SCRAPED: Data Analyst in Jaipur] 14 jobs found -> 'Custom Software Engineer' at 'Accenture in India'
+[2026-07-09 12:50:44] [SCRAPED: Data Analyst in Jaipur] 15 jobs found -> 'Custom Software Engineer' at 'Accenture in India'
+[2026-07-09 12:50:48] [SCRAPED: Data Analyst in Jaipur] 16 jobs found -> 'Custom Software Engineer' at 'Accenture in India'
+[2026-07-09 12:50:52] [SCRAPED: Data Analyst in Jaipur] 17 jobs found -> 'Custom Software Engineer' at 'Accenture in India'
+[2026-07-09 12:50:56] [SCRAPED: Data Analyst in Jaipur] 18 jobs found -> 'Custom Software Engineer' at 'Accenture in India'
+[2026-07-09 12:51:00] [SCRAPED: Data Analyst in Jaipur] 19 jobs found -> 'Record to Report Ops Analyst' at 'Accenture in India'
+[2026-07-09 12:51:04] [SCRAPED: Data Analyst in Jaipur] 20 jobs found -> 'Record to Report Ops Analyst' at 'Accenture in India'
+[2026-07-09 12:51:05] 
+--------------------------------------------------
+[2026-07-09 12:51:05] Scraping: 'Data Analyst' in 'Noida'
+[2026-07-09 12:51:05] --------------------------------------------------
+[2026-07-09 12:51:21] [INFO] Could not search using guest inputs: Page.wait_for_selector: Timeout 10000ms exceeded.
+Call log:
+  - waiting for locator("input[name='keywords'], input[aria-label='Search job titles or companies']") to be visible
+. Falling back to direct URL...
+[2026-07-09 12:51:21] Navigating directly to search URL: https://www.linkedin.com/jobs/search?keywords=Data%20Analyst&location=Noida
+[2026-07-09 12:51:32] Scrolling to load job cards...
+[2026-07-09 12:51:50] Finished scrolling. Loaded 100 job cards. Starting extraction for up to 100 jobs...
+[2026-07-09 12:51:55] [SCRAPED: Data Analyst in Noida] 1 jobs found -> 'Analytics and Modeling Analyst' at 'Accenture in India'
+[2026-07-09 12:51:59] [SCRAPED: Data Analyst in Noida] 2 jobs found -> 'E-Commerce Analyst' at 'NielsenIQ'
+[2026-07-09 12:52:03] [SCRAPED: Data Analyst in Noida] 3 jobs found -> 'Data Specialist' at 'YipitData'
+[2026-07-09 12:52:07] [SCRAPED: Data Analyst in Noida] 4 jobs found -> 'Power BI Developer' at 'CloudSmartz | Netsmartz Group'
+[2026-07-09 12:52:12] [SCRAPED: Data Analyst in Noida] 5 jobs found -> 'Measurement & Report Analyst' at 'Accenture in India'
+[2026-07-09 12:52:17] [SCRAPED: Data Analyst in Noida] 6 jobs found -> 'Data Scientist II' at 'Mastercard'
+[2026-07-09 12:52:21] [SCRAPED: Data Analyst in Noida] 7 jobs found -> 'Insurance Analytics' at 'EliteRecruitments'
+[2026-07-09 12:52:25] [SCRAPED: Data Analyst in Noida] 8 jobs found -> 'Technology Associate' at 'Peepul'
+[2026-07-09 12:52:29] [SCRAPED: Data Analyst in Noida] 9 jobs found -> 'Data Science or Data Analysis' at 'Emarlex Multiventure'
+[2026-07-09 12:52:34] [SCRAPED: Data Analyst in Noida] 10 jobs found -> 'Packaging Data Analyst' at 'McCormick & Company'
+[2026-07-09 12:52:37] [SCRAPED: Data Analyst in Noida] 11 jobs found -> 'Senior Data Analyst' at 'Khan Academy'
+[2026-07-09 12:52:42] [SCRAPED: Data Analyst in Noida] 12 jobs found -> 'Data Analyst, Operations (IP & Legal Compliance)' at 'Roblox'
+[2026-07-09 12:52:47] [SCRAPED: Data Analyst in Noida] 13 jobs found -> 'Business Intelligence Analyst' at 'PINKERTON | Comprehensive Risk Management'
+[2026-07-09 12:52:51] [SCRAPED: Data Analyst in Noida] 14 jobs found -> 'Senior Associate' at 'Macquarie Group'
+[2026-07-09 12:52:55] [SCRAPED: Data Analyst in Noida] 15 jobs found -> 'Data Scientist' at 'Emarlex Multiventure'
+[2026-07-09 12:53:00] [SCRAPED: Data Analyst in Noida] 16 jobs found -> 'Data Operations Analyst, India Ops' at 'Athelas'
+[2026-07-09 12:53:04] [SCRAPED: Data Analyst in Noida] 17 jobs found -> 'Data Analyst' at 'r3 Consultant'
+[2026-07-09 12:53:09] [SCRAPED: Data Analyst in Noida] 18 jobs found -> 'Data Analyst - Fixed Term' at 'ICF'
+[2026-07-09 12:53:13] [SCRAPED: Data Analyst in Noida] 19 jobs found -> 'Market Data Analyst' at 'Saxo Bank'
+[2026-07-09 12:53:17] [SCRAPED: Data Analyst in Noida] 20 jobs found -> 'Analytics and Modeling Analyst' at 'Accenture services Pvt Ltd'
+[2026-07-09 12:53:21] [SCRAPED: Data Analyst in Noida] 21 jobs found -> 'Research Analyst - Primary Market Research, Data Processing' at 'Mastercard'
+[2026-07-09 12:53:25] [SCRAPED: Data Analyst in Noida] 22 jobs found -> 'Business Analyst (Data) – Power Market' at 'GNA Energy'
+[2026-07-09 12:53:28] [SCRAPED: Data Analyst in Noida] 23 jobs found -> 'BUSINESS ANALYST I - MASTER DATA' at 'McCormick Flavor Solutions'
+[2026-07-09 12:53:33] [SCRAPED: Data Analyst in Noida] 24 jobs found -> 'Data Analyst_3+yrs' at 'Zorba AI'
+[2026-07-09 12:53:37] [SCRAPED: Data Analyst in Noida] 25 jobs found -> 'Analyst - Tech Ops Business Intelligence' at 'United Airlines India Knowledge Center'
+[2026-07-09 12:53:41] [SCRAPED: Data Analyst in Noida] 26 jobs found -> 'Business Analyst (Data)' at 'RsquareInfo E-Solution Pvt. Ltd.'
+[2026-07-09 12:53:45] [SCRAPED: Data Analyst in Noida] 27 jobs found -> 'Senior Analyst' at 'TresVista'
+[2026-07-09 12:53:49] [SCRAPED: Data Analyst in Noida] 28 jobs found -> 'Configuration Analyst' at 'AKQA'
+[2026-07-09 12:53:53] [SCRAPED: Data Analyst in Noida] 29 jobs found -> 'Human Resources Analyst' at 'Policybazaar.com'
+[2026-07-09 12:53:57] [SCRAPED: Data Analyst in Noida] 30 jobs found -> 'Project Leader' at 'Axtria - Ingenious Insights'
+[2026-07-09 12:54:01] [SCRAPED: Data Analyst in Noida] 31 jobs found -> 'Data Analyst II, RM - AMER' at 'Criteo'
+[2026-07-09 12:54:05] [SCRAPED: Data Analyst in Noida] 32 jobs found -> 'Decision Analyst' at 'Barclays'
+[2026-07-09 12:54:09] [SCRAPED: Data Analyst in Noida] 33 jobs found -> 'Supervising Associate' at 'EY'
+[2026-07-09 12:54:13] [SCRAPED: Data Analyst in Noida] 34 jobs found -> 'Data Quality Analyst' at 'NexGen Tech Solutions'
+[2026-07-09 12:54:17] [SCRAPED: Data Analyst in Noida] 35 jobs found -> 'Delivery AI Product Analyst' at 'BCG X'
+[2026-07-09 12:54:21] [SCRAPED: Data Analyst in Noida] 36 jobs found -> 'Operations Engineer' at 'Accenture services Pvt Ltd'
+[2026-07-09 12:54:33] [SCRAPED: Data Analyst in Noida] 37 jobs found -> 'Real-Time Analyst (RTA)' at 'Innodata India Private Limited'
+[2026-07-09 12:54:37] [SCRAPED: Data Analyst in Noida] 38 jobs found -> 'Assistant Manager - Business Intelligence and Insights Group' at 'Axis Max Life Insurance Limited'
+[2026-07-09 12:54:42] [SCRAPED: Data Analyst in Noida] 39 jobs found -> 'Senior Data Analyst' at 'Atlys'
+[2026-07-09 12:54:47] [SCRAPED: Data Analyst in Noida] 40 jobs found -> 'Senior Analyst' at 'Saarthee'
+[2026-07-09 12:54:52] [SCRAPED: Data Analyst in Noida] 41 jobs found -> 'Data Engineer' at 'R Systems'
+[2026-07-09 12:54:56] [SCRAPED: Data Analyst in Noida] 42 jobs found -> 'Data Scientist' at 'YOGIJI DIGI'
+[2026-07-09 12:55:00] [SCRAPED: Data Analyst in Noida] 43 jobs found -> 'Specialist Payment Data- Fees' at 'Circle K'
+[2026-07-09 12:55:05] [SCRAPED: Data Analyst in Noida] 44 jobs found -> 'Assistant Manager - Data Analytics' at 'IndiGo (InterGlobe Aviation Ltd)'
+[2026-07-09 12:55:08] [SCRAPED: Data Analyst in Noida] 45 jobs found -> 'Senior Staff Data Analyst' at 'Stryker'
+[2026-07-09 12:55:12] [SCRAPED: Data Analyst in Noida] 46 jobs found -> 'Analyst - Employee Listening' at 'Nestlé'
+[2026-07-09 12:55:12] 
+--------------------------------------------------
+[2026-07-09 12:55:12] Scraping: 'Data Analyst' in 'Delhi'
+[2026-07-09 12:55:13] --------------------------------------------------
+[2026-07-09 12:55:29] [INFO] Could not search using guest inputs: Page.wait_for_selector: Timeout 10000ms exceeded.
+Call log:
+  - waiting for locator("input[name='keywords'], input[aria-label='Search job titles or companies']") to be visible
+. Falling back to direct URL...
+[2026-07-09 12:55:29] Navigating directly to search URL: https://www.linkedin.com/jobs/search?keywords=Data%20Analyst&location=Delhi
+[2026-07-09 12:56:00] Action 'Navigate directly to search URL' failed (attempt 1/3). Retrying in 2s... Error: Timeout 30000ms exceeded.
+[2026-07-09 12:56:33] Action 'Navigate directly to search URL' failed (attempt 2/3). Retrying in 4s... Error: Timeout 30000ms exceeded.
+[2026-07-09 12:56:45] Scrolling to load job cards...
+[2026-07-09 12:57:02] Finished scrolling. Loaded 100 job cards. Starting extraction for up to 100 jobs...
+[2026-07-09 12:57:07] [SCRAPED: Data Analyst in Delhi] 1 jobs found -> 'Business Intelligence Analyst' at 'Winsupply'
+[2026-07-09 12:57:14] [SCRAPED: Data Analyst in Delhi] 2 jobs found -> 'BI Consultant' at 'AMEND Consulting'
+[2026-07-09 12:57:18] [SCRAPED: Data Analyst in Delhi] 3 jobs found -> 'Product Analyst II' at 'American Modern Insurance Group'
+[2026-07-09 12:57:22] [SCRAPED: Data Analyst in Delhi] 4 jobs found -> 'Analyst Marketing Services' at 'Cornerstone Brands (A Division of QVC Group)'
+[2026-07-09 12:57:27] [SCRAPED: Data Analyst in Delhi] 5 jobs found -> 'Decision Support Analyst' at 'LexisNexis'
+[2026-07-09 12:57:33] [SCRAPED: Data Analyst in Delhi] 6 jobs found -> 'People Data & Analytics Senior Consultant' at 'Deloitte'
+[2026-07-09 12:57:37] [SCRAPED: Data Analyst in Delhi] 7 jobs found -> 'Analyst, Air & Ocean Transportation Operations' at 'Gap Inc.'
+[2026-07-09 12:57:41] [SCRAPED: Data Analyst in Delhi] 8 jobs found -> 'BI ETL Data Developer II or III' at 'Miami University'
+[2026-07-09 12:57:48] [SCRAPED: Data Analyst in Delhi] 9 jobs found -> 'Logistics Analyst' at 'American Battery Solutions Inc.'
+[2026-07-09 12:57:52] [SCRAPED: Data Analyst in Delhi] 10 jobs found -> 'Space Planning Analyst' at 'Sazerac Company'
+[2026-07-09 12:57:57] [SCRAPED: Data Analyst in Delhi] 11 jobs found -> 'Sales Operations Analyst' at 'LexisNexis'
+[2026-07-09 12:58:01] [SCRAPED: Data Analyst in Delhi] 12 jobs found -> 'Analyst Customer Sales' at 'Tyson Foods'
+[2026-07-09 12:58:06] [SCRAPED: Data Analyst in Delhi] 13 jobs found -> 'F135 LSC Data Engineer (Onsite)' at 'Pratt & Whitney'
+[2026-07-09 12:58:10] [SCRAPED: Data Analyst in Delhi] 14 jobs found -> 'Marketing Analyst' at 'General Electric Credit Union'
+[2026-07-09 12:58:16] [SCRAPED: Data Analyst in Delhi] 15 jobs found -> 'Bus Intel Analyst I/II' at 'Cincinnati Children's Office of Academic Affairs and Career Development'
+[2026-07-09 12:58:20] [SCRAPED: Data Analyst in Delhi] 16 jobs found -> 'Manager, PTO Data Systems' at 'Macy's'
+[2026-07-09 12:58:24] [SCRAPED: Data Analyst in Delhi] 17 jobs found -> 'Senior Computer Programmer Analyst' at 'City of Cincinnati'
+[2026-07-09 12:58:29] [SCRAPED: Data Analyst in Delhi] 18 jobs found -> 'Senior Data Engineer' at 'WIN Home Inspection'
+[2026-07-09 12:58:33] [SCRAPED: Data Analyst in Delhi] 19 jobs found -> 'Global Sales Analyst' at 'Gentherm'
+[2026-07-09 12:58:36] [SCRAPED: Data Analyst in Delhi] 20 jobs found -> 'Sales Analyst' at 'Nestlé Purina North America'
+[2026-07-09 12:58:41] [SCRAPED: Data Analyst in Delhi] 21 jobs found -> 'Sr Analyst, Transportation - Parcel Operations' at 'Gap Inc.'
+[2026-07-09 12:58:53] [SCRAPED: Data Analyst in Delhi] 22 jobs found -> 'Third Party Analytics Sr Specialist' at 'Dividend'
+[2026-07-09 12:58:57] [SCRAPED: Data Analyst in Delhi] 23 jobs found -> 'Tech Ops Engineer, AWS Manufacturing and Repair' at 'Amazon Web Services (AWS)'
+[2026-07-09 12:59:02] [SCRAPED: Data Analyst in Delhi] 24 jobs found -> 'Demand Specialist' at 'Baxters North America'
+[2026-07-09 12:59:05] [SCRAPED: Data Analyst in Delhi] 25 jobs found -> 'Finance Analytics & AI Senior Consultant' at 'Deloitte'
+[2026-07-09 12:59:09] [SCRAPED: Data Analyst in Delhi] 26 jobs found -> 'Inventory Analyst' at 'Procter & Gamble'
+[2026-07-09 12:59:13] [SCRAPED: Data Analyst in Delhi] 27 jobs found -> 'Power BI Lead Developer' at 'BDO USA'
+[2026-07-09 12:59:17] [SCRAPED: Data Analyst in Delhi] 28 jobs found -> 'Inventory Control Specialist' at 'Baxters North America'
+[2026-07-09 12:59:21] [SCRAPED: Data Analyst in Delhi] 29 jobs found -> 'Sr. Analyst, Sales - Kroger' at 'Kraft Heinz'
+[2026-07-09 12:59:25] [SCRAPED: Data Analyst in Delhi] 30 jobs found -> 'Demand Planner' at 'The Gorilla Glue Company'
+[2026-07-09 12:59:29] [SCRAPED: Data Analyst in Delhi] 31 jobs found -> 'AVP, Authentication Analytics & Strategy' at 'Synchrony'
+[2026-07-09 12:59:33] [SCRAPED: Data Analyst in Delhi] 32 jobs found -> 'HS Quality & Data Specialist (10-month)' at 'Cincinnati-Hamilton County Community Action Agency'
+[2026-07-09 12:59:38] [SCRAPED: Data Analyst in Delhi] 33 jobs found -> 'Senior Pricing & Business Analyst' at 'WilmerHale'
+[2026-07-09 12:59:42] [SCRAPED: Data Analyst in Delhi] 34 jobs found -> 'Sr Revenue Cycle Analyst, First Shift, Full Time' at 'UC Health'
+[2026-07-09 12:59:46] [SCRAPED: Data Analyst in Delhi] 35 jobs found -> 'ERP Systems Analyst' at 'Accelevation LLC'
+[2026-07-09 12:59:50] [SCRAPED: Data Analyst in Delhi] 36 jobs found -> 'Sales Insights Manager, Kroger' at 'Harvest Group'
+[2026-07-09 12:59:53] [SCRAPED: Data Analyst in Delhi] 37 jobs found -> 'Airfreight Spot Desk Pricing Analyst' at 'DHL Global Forwarding'
+[2026-07-09 12:59:58] [SCRAPED: Data Analyst in Delhi] 38 jobs found -> 'Business Operations & Reporting Coordinator' at 'Central Clinic Behavioral Health'
+[2026-07-09 12:59:58] 
+--------------------------------------------------
+[2026-07-09 12:59:58] Scraping: 'Data Analyst' in 'Gurugram'
+[2026-07-09 12:59:58] --------------------------------------------------
+[2026-07-09 13:00:28] Action 'Navigate to LinkedIn jobs portal' failed (attempt 1/3). Retrying in 2s... Error: Timeout 30000ms exceeded.
+[2026-07-09 13:00:46] [INFO] Could not search using guest inputs: Page.wait_for_selector: Timeout 10000ms exceeded.
+Call log:
+  - waiting for locator("input[name='keywords'], input[aria-label='Search job titles or companies']") to be visible
+. Falling back to direct URL...
+[2026-07-09 13:00:46] Navigating directly to search URL: https://www.linkedin.com/jobs/search?keywords=Data%20Analyst&location=Gurugram
+[2026-07-09 13:00:56] Scrolling to load job cards...
+[2026-07-09 13:01:14] Finished scrolling. Loaded 100 job cards. Starting extraction for up to 100 jobs...
+[2026-07-09 13:01:38] [SCRAPED: Data Analyst in Gurugram] 1 jobs found -> 'Project Leader' at 'Axtria - Ingenious Insights'
+[2026-07-09 13:01:46] [SCRAPED: Data Analyst in Gurugram] 2 jobs found -> 'Senior Data Engineer' at 'WIN Home Inspection'
+[2026-07-09 13:02:02] [SCRAPED: Data Analyst in Gurugram] 3 jobs found -> 'Lead - Data Operations' at 'Sun Life'
+[2026-07-09 13:02:10] [SCRAPED: Data Analyst in Gurugram] 4 jobs found -> 'Global IT Data Analyst Senior Specialist- Digital Foundations' at 'Boston Consulting Group (BCG)'
+[2026-07-09 13:02:10] 
+--------------------------------------------------
+[2026-07-09 13:02:10] Scraping: 'Business Analyst' in 'Jaipur'
+[2026-07-09 13:02:10] --------------------------------------------------
+[2026-07-09 13:02:40] Action 'Navigate to LinkedIn jobs portal' failed (attempt 1/3). Retrying in 2s... Error: Timeout 30000ms exceeded.
+[2026-07-09 13:03:13] Action 'Navigate to LinkedIn jobs portal' failed (attempt 2/3). Retrying in 4s... Error: Timeout 30000ms exceeded.
+[2026-07-09 13:03:47] Action 'Navigate to LinkedIn jobs portal' failed after 3 attempts. Error: Timeout 30000ms exceeded.
+[2026-07-09 13:03:47] [ERROR] Failed combination 'Business Analyst' in 'Jaipur': Timeout 30000ms exceeded.
+[2026-07-09 13:03:47] 
+--------------------------------------------------
+[2026-07-09 13:03:47] Scraping: 'Business Analyst' in 'Noida'
+[2026-07-09 13:03:47] --------------------------------------------------
+[2026-07-09 13:04:18] Action 'Navigate to LinkedIn jobs portal' failed (attempt 1/3). Retrying in 2s... Error: Timeout 30000ms exceeded.
+[2026-07-09 13:04:50] Action 'Navigate to LinkedIn jobs portal' failed (attempt 2/3). Retrying in 4s... Error: Timeout 30000ms exceeded.
+[2026-07-09 13:05:25] Action 'Navigate to LinkedIn jobs portal' failed after 3 attempts. Error: Timeout 30000ms exceeded.
+[2026-07-09 13:05:25] [ERROR] Failed combination 'Business Analyst' in 'Noida': Timeout 30000ms exceeded.
+[2026-07-09 13:05:25] 
+--------------------------------------------------
+[2026-07-09 13:05:25] Scraping: 'Business Analyst' in 'Delhi'
+[2026-07-09 13:05:25] --------------------------------------------------
+[2026-07-09 13:05:56] Action 'Navigate to LinkedIn jobs portal' failed (attempt 1/3). Retrying in 2s... Error: Timeout 30000ms exceeded.
+[2026-07-09 13:06:28] Action 'Navigate to LinkedIn jobs portal' failed (attempt 2/3). Retrying in 4s... Error: Timeout 30000ms exceeded.
+[2026-07-09 13:06:48] [INFO] Could not search using guest inputs: Page.wait_for_selector: Timeout 10000ms exceeded.
+Call log:
+  - waiting for locator("input[name='keywords'], input[aria-label='Search job titles or companies']") to be visible
+. Falling back to direct URL...
+[2026-07-09 13:06:48] Navigating directly to search URL: https://www.linkedin.com/jobs/search?keywords=Business%20Analyst&location=Delhi
+[2026-07-09 13:06:58] Scrolling to load job cards...
+[2026-07-09 13:07:14] Finished scrolling. Loaded 100 job cards. Starting extraction for up to 100 jobs...
+[2026-07-09 13:07:19] [SCRAPED: Business Analyst in Delhi] 1 jobs found -> 'Business Analyst' at 'Systematic Business Consulting'
+[2026-07-09 13:07:26] [SCRAPED: Business Analyst in Delhi] 2 jobs found -> 'IT Business Analyst (On-Site Position)' at 'Danis'
+[2026-07-09 13:07:31] [SCRAPED: Business Analyst in Delhi] 3 jobs found -> 'IT Analyst II' at 'Honeywell Technologies'
+[2026-07-09 13:07:35] [SCRAPED: Business Analyst in Delhi] 4 jobs found -> 'Business Systems Analyst - SME' at 'Inserso Corporation'
+[2026-07-09 13:07:39] [SCRAPED: Business Analyst in Delhi] 5 jobs found -> 'Business Analyst I/Business Analyst II' at 'Miami University'
+[2026-07-09 13:07:44] [SCRAPED: Business Analyst in Delhi] 6 jobs found -> 'IT Business Systems Analyst' at 'Crane Company'
+[2026-07-09 13:07:48] [SCRAPED: Business Analyst in Delhi] 7 jobs found -> 'Healthcare System Analyst – Payer Systems' at 'Programmers.io'
+[2026-07-09 13:07:52] [SCRAPED: Business Analyst in Delhi] 8 jobs found -> 'Business System Analyst, re:Cycle Reverse Logistics' at 'Amazon Web Services (AWS)'
+[2026-07-09 13:07:59] [SCRAPED: Business Analyst in Delhi] 9 jobs found -> 'Solutions Analyst - Software' at 'KPI Solutions'
+[2026-07-09 13:08:04] [SCRAPED: Business Analyst in Delhi] 10 jobs found -> 'Salesforce Business Analyst - US Remote' at 'Siemens Digital Industries Software'
+[2026-07-09 13:08:11] [SCRAPED: Business Analyst in Delhi] 11 jobs found -> 'JOB-6954' at 'ALTEN'
+[2026-07-09 13:08:17] [SCRAPED: Business Analyst in Delhi] 12 jobs found -> 'Reel Business Process Specialist' at 'Prysmian'
+[2026-07-09 13:08:22] [SCRAPED: Business Analyst in Delhi] 13 jobs found -> 'Operational Systems Analyst (Intralogistics)' at 'Storage Solutions - A Jungheinrich Company'
+[2026-07-09 13:08:28] [SCRAPED: Business Analyst in Delhi] 14 jobs found -> 'Business Systems Analyst - Sr Lead' at 'Inserso Corporation'
+[2026-07-09 13:08:32] [SCRAPED: Business Analyst in Delhi] 15 jobs found -> 'Business Information Consultant Sr' at 'Elevance Health'
+[2026-07-09 13:08:37] [SCRAPED: Business Analyst in Delhi] 16 jobs found -> 'Product Manager' at 'Total Quality Logistics'
+[2026-07-09 13:08:42] [SCRAPED: Business Analyst in Delhi] 17 jobs found -> 'Anaplan Consultant' at 'Deloitte'
+[2026-07-09 13:08:46] [SCRAPED: Business Analyst in Delhi] 18 jobs found -> 'Regional Commercial Operations Specialist' at 'Prysmian'
+[2026-07-09 13:08:50] [SCRAPED: Business Analyst in Delhi] 19 jobs found -> 'Financial Systems Analyst' at 'American Modern Insurance Group'
+[2026-07-09 13:08:56] [SCRAPED: Business Analyst in Delhi] 20 jobs found -> 'Personal Lines - Client Services Analyst' at 'The Cincinnati Insurance Companies'
+[2026-07-09 13:09:12] [SCRAPED: Business Analyst in Delhi] 21 jobs found -> 'ServiceNow Product Owner' at 'Worldpay'
+[2026-07-09 13:09:17] [SCRAPED: Business Analyst in Delhi] 22 jobs found -> 'Standard work & Change Management Specialist' at 'GE Aerospace'
+[2026-07-09 13:09:22] [SCRAPED: Business Analyst in Delhi] 23 jobs found -> 'Quality Assurance Analyst' at 'AMEND Consulting'
+[2026-07-09 13:09:28] [SCRAPED: Business Analyst in Delhi] 24 jobs found -> 'Programmer Analyst/Systems Integration' at 'Batesville Tool & Die, Inc.'
+[2026-07-09 13:09:32] [SCRAPED: Business Analyst in Delhi] 25 jobs found -> 'Continuous Improvement Specialist - Erlanger, KY' at 'ADM'
+[2026-07-09 13:09:36] [SCRAPED: Business Analyst in Delhi] 26 jobs found -> 'Sr Time Labor Analyst' at 'CommonSpirit Health'
+[2026-07-09 13:09:41] [SCRAPED: Business Analyst in Delhi] 27 jobs found -> 'Business Manager' at 'UC Health'
+[2026-07-09 13:09:41] 
+--------------------------------------------------
+[2026-07-09 13:09:41] Scraping: 'Business Analyst' in 'Gurugram'
+[2026-07-09 13:09:41] --------------------------------------------------
+[2026-07-09 13:09:56] [INFO] Could not search using guest inputs: Page.wait_for_selector: Timeout 10000ms exceeded.
+Call log:
+  - waiting for locator("input[name='keywords'], input[aria-label='Search job titles or companies']") to be visible
+. Falling back to direct URL...
+[2026-07-09 13:09:56] Navigating directly to search URL: https://www.linkedin.com/jobs/search?keywords=Business%20Analyst&location=Gurugram
+[2026-07-09 13:10:05] Scrolling to load job cards...
+[2026-07-09 13:10:23] Finished scrolling. Loaded 100 job cards. Starting extraction for up to 100 jobs...
+[2026-07-09 13:10:28] [SCRAPED: Business Analyst in Gurugram] 1 jobs found -> 'IT Business Analyst' at 'ERM'
+[2026-07-09 13:10:32] [SCRAPED: Business Analyst in Gurugram] 2 jobs found -> 'BUSINESS ANALYST JOB GURGAON | 8th July Update' at 'SEO Tech Experts Pvt Ltd - Top-Rated SEO Agency in India'
+[2026-07-09 13:10:37] [SCRAPED: Business Analyst in Gurugram] 3 jobs found -> 'Technical Business Analyst' at 'Devops Expert India'
+[2026-07-09 13:10:41] [SCRAPED: Business Analyst in Gurugram] 4 jobs found -> 'AI Advisor' at 'Accenture in India'
+[2026-07-09 13:10:45] [SCRAPED: Business Analyst in Gurugram] 5 jobs found -> 'product/project-Loyalty Programs' at 'EAZY'
+[2026-07-09 13:10:51] [SCRAPED: Business Analyst in Gurugram] 6 jobs found -> 'Senior Business Systems Analyst' at 'ETS'
+[2026-07-09 13:10:58] [SCRAPED: Business Analyst in Gurugram] 7 jobs found -> 'Business Advisor' at 'Capgemini'
+[2026-07-09 13:12:33] ============================================================
+[2026-07-09 13:12:33] AUTOMATIC COLD EMAIL GENERATOR (OPENROUTER)
+[2026-07-09 13:12:33] ============================================================
+[2026-07-09 13:12:33] [INFO] Resume read successfully from: C:\Users\Shashank\Downloads\Linked in\my_resume.docx
+[2026-07-09 13:12:33] [INFO] Parsing resume using AI parser...
+[2026-07-09 13:12:38] [INFO] Resume parsed successfully by AI.
+[2026-07-09 13:12:38] [READY] Resume loaded for: Shashank Jain - Data Analyst
+[2026-07-09 13:12:41] 
+--- MODE A: Standalone (Manual Cold Email Generator) ---
+[2026-07-09 13:12:56] Generating email template using OpenRouter API...
+[2026-07-09 13:13:00] [SUCCESS] Email successfully saved to: cold_email_output.txt
+[2026-07-09 13:14:17] [ERROR] SMTP sending failed to jainakshat6878@gmail.com: (535, b'5.7.8 Username and Password not accepted. For more information, go to\n5.7.8  https://support.google.com/mail/?p=BadCredentials a92af1059eb24-13b65960d88sm24142290c88.6 - gsmtp')
+[2026-07-09 13:15:09] ============================================================
+[2026-07-09 13:15:09] AUTOMATIC COLD EMAIL GENERATOR (OPENROUTER)
+[2026-07-09 13:15:09] ============================================================
+[2026-07-09 13:15:09] [INFO] Resume read successfully from: C:\Users\Shashank\Downloads\Linked in\my_resume.docx
+[2026-07-09 13:15:09] [INFO] Parsing resume using AI parser...
+[2026-07-09 13:15:15] [INFO] Resume parsed successfully by AI.
+[2026-07-09 13:15:15] [READY] Resume loaded for: Shashank Jain - Data Analyst
+[2026-07-09 13:15:19] 
+--- MODE B: Scraper Integration (Automatic Cold Email Generator) ---
+[2026-07-09 13:15:29] [ERROR] File '1' does not exist!
+[2026-07-09 13:15:57] ============================================================
+[2026-07-09 13:15:57] AUTOMATIC COLD EMAIL GENERATOR (OPENROUTER)
+[2026-07-09 13:15:57] ============================================================
+[2026-07-09 13:15:57] [INFO] Resume read successfully from: C:\Users\Shashank\Downloads\Linked in\my_resume.docx
+[2026-07-09 13:15:57] [INFO] Parsing resume using AI parser...
+[2026-07-09 13:16:01] [INFO] Resume parsed successfully by AI.
+[2026-07-09 13:16:01] [READY] Resume loaded for: Shashank Jain - Data Analyst
+[2026-07-09 13:16:03] 
+--- MODE A: Standalone (Manual Cold Email Generator) ---
+[2026-07-09 13:16:18] Generating email template using OpenRouter API...
+[2026-07-09 13:16:22] [SUCCESS] Email successfully saved to: cold_email_output.txt
+[2026-07-09 13:16:35] [ERROR] SMTP sending failed to realshashankjain@gmail.com: (535, b'5.7.8 Username and Password not accepted. For more information, go to\n5.7.8  https://support.google.com/mail/?p=BadCredentials a92af1059eb24-13b6593c4ddsm30321264c88.1 - gsmtp')
+[2026-07-09 13:17:16] ============================================================
+[2026-07-09 13:17:16] AUTOMATIC COLD EMAIL GENERATOR (OPENROUTER)
+[2026-07-09 13:17:16] ============================================================
+[2026-07-09 13:17:16] [INFO] Resume read successfully from: C:\Users\Shashank\Downloads\Linked in\my_resume.docx
+[2026-07-09 13:17:16] [INFO] Parsing resume using AI parser...
+[2026-07-09 13:17:19] [INFO] Resume parsed successfully by AI.
+[2026-07-09 13:17:19] [READY] Resume loaded for: Shashank Jain - Data Analyst
+[2026-07-09 13:17:22] 
+--- MODE A: Standalone (Manual Cold Email Generator) ---
+[2026-07-09 13:17:36] Generating email template using OpenRouter API...
+[2026-07-09 13:17:38] [SUCCESS] Email successfully saved to: cold_email_output.txt
+[2026-07-09 13:48:07] ============================================================
+[2026-07-09 13:48:07] AUTOMATIC COLD EMAIL GENERATOR (OPENROUTER)
+[2026-07-09 13:48:07] ============================================================
+[2026-07-09 13:48:07] [INFO] Resume read successfully from: C:\Users\Shashank\Downloads\Linked in\my_resume.docx
+[2026-07-09 13:48:07] [INFO] Parsing resume using AI parser...
+[2026-07-09 13:48:12] [INFO] Resume parsed successfully by AI.
+[2026-07-09 13:48:12] [READY] Resume loaded for: Shashank Jain - Data Analyst
+[2026-07-09 13:48:42] 
+--- MODE A: Standalone (Manual Cold Email Generator) ---
+[2026-07-09 13:48:55] Generating email template using OpenRouter API...
+[2026-07-09 13:48:58] [SUCCESS] Email successfully saved to: cold_email_output.txt
+[2026-07-09 13:49:11] [ERROR] SMTP sending failed to realshashankjain@gmail.com: (535, b'5.7.8 Username and Password not accepted. For more information, go to\n5.7.8  https://support.google.com/mail/?p=BadCredentials a92af1059eb24-13b6593c76dsm28617302c88.3 - gsmtp')
+[2026-07-09 13:51:17] ============================================================
+[2026-07-09 13:51:17] AUTOMATIC COLD EMAIL GENERATOR (OPENROUTER)
+[2026-07-09 13:51:17] ============================================================
+[2026-07-09 13:51:17] [INFO] Resume read successfully from: C:\Users\Shashank\Downloads\Linked in\my_resume.docx
+[2026-07-09 13:51:17] [INFO] Parsing resume using AI parser...
+[2026-07-09 13:51:21] [INFO] Resume parsed successfully by AI.
+[2026-07-09 13:51:21] [READY] Resume loaded for: Shashank Jain - Data Analyst
+[2026-07-09 13:51:23] 
+--- MODE A: Standalone (Manual Cold Email Generator) ---
+[2026-07-09 13:51:38] Generating email template using OpenRouter API...
+[2026-07-09 13:51:41] [SUCCESS] Email successfully saved to: cold_email_output.txt
+[2026-07-09 13:51:55] [SUCCESS] SMTP Email successfully sent to: realshashankjain@gmail.com
