@@ -486,22 +486,60 @@ def job_scraper_worker(task_id: str, cities_list: List[Dict[str, str]], target_j
                     writer.writerow(j)
             write_excel_xml(xls_file, city_jobs, headers, f"Fresher Jobs - {c}")
 
-        # Save merged
+        # Save merged (Append & Deduplicate with existing jobs)
         merged_json = "linkedin_fresher_data_analyst_jobs_merged.json"
         merged_csv = "linkedin_fresher_data_analyst_jobs_merged.csv"
         merged_xls = "linkedin_fresher_data_analyst_jobs_merged.xls"
 
+        existing_jobs = []
+        if os.path.exists(merged_json):
+            try:
+                with open(merged_json, "r", encoding="utf-8") as f:
+                    existing_jobs = json.load(f)
+                tracker.add_log(f"Loaded {len(existing_jobs)} existing jobs from merged file.")
+            except Exception as e:
+                tracker.add_log(f"Warning: Failed to load existing merged jobs ({e}). Starting fresh.")
+
+        # Combine old and new scraped jobs
+        combined_jobs = existing_jobs + all_jobs
+
+        # Deduplicate based on Job URL or (Job Title + Company Name)
+        seen_urls = set()
+        seen_titles_companies = set()
+        unique_jobs = []
+
+        for job in combined_jobs:
+            url = job.get("Job Posting Link / URL", "").strip()
+            title = job.get("Job Title", "").strip().lower()
+            company = job.get("Company Name", "").strip().lower()
+            title_comp = f"{title}|||{company}"
+
+            if url:
+                if url not in seen_urls:
+                    seen_urls.add(url)
+                    unique_jobs.append(job)
+            else:
+                if title_comp not in seen_titles_companies:
+                    seen_titles_companies.add(title_comp)
+                    unique_jobs.append(job)
+
+        # Sort combined unique jobs by city priority
+        unique_jobs.sort(key=lambda x: city_priority.get(x["City / Location"], 4))
+
+        # Write deduplicated combined list back to merged files
         with open(merged_json, "w", encoding="utf-8") as f:
-            json.dump(all_jobs, f, indent=4, ensure_ascii=False)
+            json.dump(unique_jobs, f, indent=4, ensure_ascii=False)
+        
         with open(merged_csv, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=headers)
             writer.writeheader()
-            for j in all_jobs:
+            for j in unique_jobs:
                 writer.writerow(j)
-        write_excel_xml(merged_xls, all_jobs, headers, "Merged Fresher Jobs")
+                
+        write_excel_xml(merged_xls, unique_jobs, headers, "Merged Fresher Jobs")
 
         tracker.complete(merged_json)
-        tracker.add_log(f"Scrape completed. Merged {len(all_jobs)} records saved.")
+        tracker.add_log(f"Scrape completed. Total accumulated unique jobs: {len(unique_jobs)} (New added: {len(all_jobs)}).")
 
     except Exception as err:
         tracker.fail(str(err))
@@ -619,6 +657,60 @@ def email_generator_worker(task_id: str, api_key: str, model_name: str, resume_d
 
     except Exception as err:
         tracker.fail(str(err))
+
+# 24-Hour Pipeline Scheduler
+from apscheduler.schedulers.background import BackgroundScheduler
+
+def run_scheduled_pipeline():
+    """
+    24-hour pipeline job: Scrapes jobs first, then generates cold emails.
+    """
+    logger.info("⏰ Starting scheduled 24-hour scraping and email generation pipeline...")
+    
+    # 1. Scrape jobs
+    task_id_scrape = f"sched_scrape_{str(uuid.uuid4())[:4]}"
+    cities_list = [
+        {"name": "Delhi", "query": "Delhi, India"},
+        {"name": "Noida", "query": "Noida, Uttar Pradesh, India"},
+        {"name": "Gurgaon", "query": "Gurgaon, Haryana, India"},
+        {"name": "Jaipur", "query": "Jaipur, Rajasthan, India"}
+    ]
+    
+    try:
+        # Scrape with headless=True, limit=30 (stable limit for scheduled tasks)
+        job_scraper_worker(task_id_scrape, cities_list, target_job_count=30, headless=True)
+    except Exception as e:
+        logger.error(f"Scheduled scraping failed: {e}")
+        return
+
+    # 2. Check if jobs CSV was generated successfully
+    jobs_csv = "linkedin_fresher_data_analyst_jobs_merged.csv"
+    if os.path.exists(jobs_csv):
+        # 3. Generate cold emails
+        config = load_config()
+        api_key = config.get("api_key")
+        model_name = config.get("model_name", "openai/gpt-4o-mini")
+        resume_data = config.get("resume_data")
+        
+        if api_key and resume_data:
+            task_id_email = f"sched_email_{str(uuid.uuid4())[:4]}"
+            try:
+                email_generator_worker(task_id_email, api_key, model_name, resume_data, jobs_csv)
+                logger.info("✅ Scheduled pipeline completed successfully.")
+            except Exception as e:
+                logger.error(f"Scheduled email generation failed: {e}")
+        else:
+            logger.error("Scheduled email generation skipped: OpenRouter API key or Resume Data is missing in config.")
+    else:
+        logger.error("Scheduled email generation skipped: Scraped jobs file not found.")
+
+@app.on_event("startup")
+def start_scheduler():
+    scheduler = BackgroundScheduler()
+    # Runs the pipeline every 24 hours
+    scheduler.add_job(run_scheduled_pipeline, "interval", hours=24)
+    scheduler.start()
+    logger.info("📅 APScheduler background task registered to run every 24 hours.")
 
 # HTTP App Controllers
 @app.get("/api/config")
