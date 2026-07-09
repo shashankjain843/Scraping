@@ -41,23 +41,27 @@ tasks_db: Dict[str, Dict[str, Any]] = {}
 DEFAULT_RESUME_DATA = {
     "Name": "Shashank Jain",
     "Role": "Data Analyst",
-    "Skills": ["Python", "SQL", "Pandas", "NumPy", "Power BI", "Tableau", "PostgreSQL", "MongoDB", "FastAPI", "LangChain", "RAG", "EDA"],
+    "Skills": [
+        "Python", "SQL", "Pandas", "Numpy", "Data Cleaning", "Exploratory Data Analysis (EDA)", "Insight Generation",
+        "Power BI", "Tableau", "PostgreSQL", "MongoDB", "FastAPI", "LangChain", "RAG", "Git", "JupyterNotebook", "VS Code", "SDLC",
+        "Communication", "Problem Solving", "Teamwork", "Adaptability"
+    ],
     "Experience": [
         {
-            "Company": "Appic Software Development",
-            "Details": "Power BI dashboards, 30% reporting effort reduction, EDA on 10,000+ rows"
+            "Company": "Appic Software Development (On-Site)",
+            "Details": "Performed exploratory data analysis and preprocessing on 10,000+ rows using Pandas and NumPy; Applied data cleaning and transformation techniques improving dataset quality by 25%; Created interactive Power BI dashboards for KPI tracking reducing manual reporting effort by 30%."
         }
     ],
     "Projects": [
         {
-            "Name": "Sales & Revenue Performance Analysis",
-            "Technologies": ["Python", "SQL", "Streamlit", "Holt's forecasting"],
-            "Details": "Sales & Revenue Performance Analysis using Python, SQL, Streamlit, Holt's forecasting"
+            "Name": "Sales and Revenue Performance Analysis",
+            "Technologies": ["Python", "Numpy", "SQL", "Streamlit", "Seaborn"],
+            "Details": "Built a Python SQL ETL pipeline to clean 100k+ transactions and run YoY sales and cohort retention models in SQLite; Developed a Holt's linear forecasting model (31.6% MAPE) and RFM customer segmentation to analyze lifetime value; Developed an interactive Streamlit dashboard that identified a 30% discount tipping point, projecting a 1.8% gross profit margin increase."
         },
         {
             "Name": "Healthcare Analytics Dashboard",
             "Technologies": ["Python", "Pandas", "PostgreSQL", "XGBoost", "Streamlit"],
-            "Details": "Healthcare Analytics Dashboard using Python, Pandas, PostgreSQL, XGBoost, Streamlit"
+            "Details": "Designed a healthcare analytics system that predicts 30-day patient readmission risk using clinical and demographic patient data; Built a disease outbreak forecasting module analyzing historical case trends to predict future outbreak patterns by region and time; Developed an interactive dashboard comparing treatment effectiveness across patient groups using survival analysis to support hospital decision-making."
         }
     ],
     "Contact": {
