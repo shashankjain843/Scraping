@@ -361,3 +361,20 @@ Call log:
 [2026-07-09 20:09:18] Scraping city: Jaipur (Jaipur, Rajasthan, India) for keyword 'Data Analyst'...
 [2026-07-09 20:09:28] Found 53 job cards for Jaipur. Processing top 30...
 [2026-07-09 20:09:53] [SUCCESS] Background scraper complete. Found 2 new jobs. Total unique jobs in database: 882
+[2026-07-09 20:25:59] ============================================================
+[2026-07-09 20:25:59] AUTOMATIC COLD EMAIL GENERATOR (OPENROUTER)
+[2026-07-09 20:25:59] ============================================================
+[2026-07-09 20:25:59] [INFO] Resume read successfully from: C:\Users\Shashank\Downloads\Linked in\my_resume.docx
+[2026-07-09 20:25:59] [INFO] Parsing resume using AI parser...
+[2026-07-09 20:26:05] [INFO] Resume parsed successfully by AI.
+[2026-07-09 20:26:05] [READY] Resume loaded for: Shashank Jain - Data Analyst
+[2026-07-09 20:26:08] 
+--- MODE A: Standalone (Manual Cold Email Generator) ---
+[2026-07-09 20:26:33] Generating email template using OpenRouter API...
+[2026-07-09 20:26:38] [SUCCESS] Email successfully saved to: cold_email_output.txt
+[2026-07-09 20:27:01] [INFO] PDF resume not found. Attempting to convert my_resume.docx to PDF...
+[2026-07-09 20:27:05] [WARNING] Failed to convert docx to pdf using docx2pdf: (-2147352567, 'Exception occurred.', (0, 'Microsoft Word', 'The file appears to be corrupted.', 'wdmain11.chm', 25272, -2146822496), None). Trying raw win32com...
+[2026-07-09 20:27:05] [ERROR] Failed to convert docx to pdf using Word COM: (-2147352567, 'Exception occurred.', (0, 'Microsoft Word', 'The file appears to be corrupted.', 'wdmain11.chm', 25272, -2146822496), None).
+[2026-07-09 20:27:05] [WARNING] DOCX to PDF conversion failed. Falling back to original DOCX.
+[2026-07-09 20:27:05] [INFO] Attached resume: my_resume.docx to email.
+[2026-07-09 20:27:10] [SUCCESS] SMTP Email successfully sent to: jshreyansh656@gmail.com
