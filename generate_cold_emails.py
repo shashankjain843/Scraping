@@ -7,6 +7,9 @@ import re
 import requests
 import smtplib
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 from email.header import Header
 from docx import Document
 from dotenv import load_dotenv
@@ -126,6 +129,33 @@ def extract_subject_and_body(email_text):
     body = "\n".join(body_lines).strip()
     return subject, body
 
+def convert_docx_to_pdf(docx_path, pdf_path):
+    try:
+        from docx2pdf import convert
+        convert(docx_path, pdf_path)
+        log_to_file(f"[SUCCESS] Converted {docx_path} to {pdf_path} using docx2pdf.")
+        return True
+    except Exception as e:
+        log_to_file(f"[WARNING] Failed to convert docx to pdf using docx2pdf: {e}. Trying raw win32com...")
+        
+    try:
+        import win32com.client
+        import pythoncom
+        pythoncom.CoInitialize()
+        word = win32com.client.Dispatch("Word.Application")
+        word.Visible = False
+        doc = word.Documents.Open(docx_path)
+        # Format 17 is for PDF
+        doc.SaveAs(pdf_path, FileFormat=17)
+        doc.Close()
+        word.Quit()
+        log_to_file(f"[SUCCESS] Converted {docx_path} to {pdf_path} using Word COM.")
+        return True
+    except Exception as e:
+        log_to_file(f"[ERROR] Failed to convert docx to pdf using Word COM: {e}.")
+        
+    return False
+
 def send_email_via_smtp(subject, body, recipient_email):
     global stats
     smtp_server = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
@@ -138,11 +168,51 @@ def send_email_via_smtp(subject, body, recipient_email):
         return False
         
     try:
-        msg = MIMEText(body, "plain", "utf-8")
+        # Create a multipart message
+        msg = MIMEMultipart()
         msg["Subject"] = Header(subject, "utf-8")
         msg["From"] = smtp_email
         msg["To"] = recipient_email
         
+        # Attach body
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+        
+        dir_path = os.path.dirname(os.path.abspath(__file__))
+        
+        # Look for PDF resume first
+        pdf_path = os.path.join(dir_path, "my_resume.pdf")
+        docx_path = os.path.join(dir_path, "my_resume.docx")
+        
+        resume_path = None
+        if os.path.exists(pdf_path):
+            resume_path = pdf_path
+        elif os.path.exists(docx_path):
+            log_to_file("[INFO] PDF resume not found. Attempting to convert my_resume.docx to PDF...")
+            success = convert_docx_to_pdf(docx_path, pdf_path)
+            if success and os.path.exists(pdf_path):
+                resume_path = pdf_path
+            else:
+                log_to_file("[WARNING] DOCX to PDF conversion failed. Falling back to original DOCX.")
+                resume_path = docx_path
+                
+        if resume_path:
+            filename = os.path.basename(resume_path)
+            try:
+                with open(resume_path, "rb") as attachment:
+                    part = MIMEBase("application", "octet-stream")
+                    part.set_payload(attachment.read())
+                encoders.encode_base64(part)
+                part.add_header(
+                    "Content-Disposition",
+                    f"attachment; filename= {filename}",
+                )
+                msg.attach(part)
+                log_to_file(f"[INFO] Attached resume: {filename} to email.")
+            except Exception as att_err:
+                log_to_file(f"[WARNING] Failed to attach resume: {att_err}")
+        else:
+            log_to_file(f"[WARNING] Resume file (my_resume.pdf or my_resume.docx) not found in {dir_path}. Sending without attachment.")
+            
         server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
         server.starttls()
         server.login(smtp_email, smtp_password)
@@ -246,6 +316,7 @@ def generate_cold_email(api_key, company_name, job_title, job_description):
         "Generic buzzwords mat use karo. Write the email in English. "
         "Do not use placeholders like [Company Name], [Job Title], [Your Name], or any brackets. "
         "Always replace them with the actual names provided. "
+        "Always address the email to 'Dear Hiring Team,' or 'Dear [Company Name] Hiring Team,' instead of 'Dear Hiring Manager,' or 'Dear Recruiter,'. "
         "The response must start directly with 'Subject: [Subject Line]' followed by the email body. "
         "Do not write any introductory or concluding conversation text, just start with Subject:.\n"
         "CRITICAL: Do NOT use any spam-trigger words or phrases such as 'Free', 'Guaranteed', "
@@ -269,7 +340,7 @@ Job Listing details:
 - Job Title: {job_title}
 - Job Description/Required Skills: {job_description}
 
-Write a personalized cold email from {RESUME_DATA['Name']} to the recruiter or hiring manager at {company_name} for the '{job_title}' position. Match relevant skills and projects from his resume. Make it short (5-6 lines), professional, and direct. Start with the Subject line.
+Write a personalized cold email from {RESUME_DATA['Name']} to the hiring team at {company_name} for the '{job_title}' position. Match relevant skills and projects from his resume. Make it short (5-6 lines), professional, and direct. Address the email with 'Dear Hiring Team,'. Start with the Subject line.
 """
 
     payload = {
@@ -287,7 +358,11 @@ Write a personalized cold email from {RESUME_DATA['Name']} to the recruiter or h
         data = response.json()
         if "choices" in data and len(data["choices"]) > 0:
             stats["emails_generated"] += 1
-            return data["choices"][0]["message"]["content"].strip()
+            email_text = data["choices"][0]["message"]["content"].strip()
+            # Post-process to ensure "Dear Hiring Team" greeting
+            email_text = re.sub(r'Dear\s+Hiring\s+Manager\b', 'Dear Hiring Team', email_text, flags=re.IGNORECASE)
+            email_text = re.sub(r'Dear\s+Recruiter\b', 'Dear Hiring Team', email_text, flags=re.IGNORECASE)
+            return email_text
         else:
             log_to_file(f"[ERROR] Invalid API response format from OpenRouter: {data}")
             return None

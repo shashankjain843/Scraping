@@ -351,12 +351,23 @@ def extract_website(description):
 
 def login_to_linkedin(page, email, password):
     log_to_file("[INFO] Starting LinkedIn login process...")
+    
+    # Check if we are already logged in via storage_state
+    try:
+        page.goto("https://www.linkedin.com/feed/", timeout=20000)
+        page.wait_for_load_state("networkidle")
+        if "feed" in page.url or page.locator("a[data-global-header-item='linkedin-home']").first.count() > 0:
+            log_to_file("[SUCCESS] Already logged in to LinkedIn (session active). Skipping credentials entry.")
+            return
+    except Exception as e:
+        log_to_file(f"[INFO] Active session check failed or timed out: {e}. Proceeding with login...")
+        
     try:
         def goto_login():
             page.goto("https://www.linkedin.com/login", timeout=60000)
             page.wait_for_load_state("networkidle")
         
-        retry_action(goto_login, "Navigate to LinkedIn login page")
+        retry_action(goto_login, "Navigate to LinkedIn login page", max_attempts=1)
         check_captcha(page)
         
         # Fill email
@@ -378,14 +389,20 @@ def login_to_linkedin(page, email, password):
                 page.locator(submit_sel).click()
             page.wait_for_load_state("networkidle")
             
-        retry_action(click_submit, "Submit LinkedIn login form")
+        retry_action(click_submit, "Submit LinkedIn login form", max_attempts=1)
         check_captcha(page)
         
+        session_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "linkedin_session.json")
         if "feed" in page.url or "checkpoint" not in page.url:
             log_to_file("[SUCCESS] Logged in to LinkedIn successfully.")
+            # Save storage state
+            page.context.storage_state(path=session_path)
+            log_to_file(f"[INFO] Saved new LinkedIn session state to {session_path}")
         else:
             log_to_file(f"[WARNING] Login might have requested security check or failed. Current URL: {page.url}")
             check_captcha(page)
+            # Save storage state anyway in case it was a checkpoint they can bypass manually
+            page.context.storage_state(path=session_path)
     except Exception as login_err:
         log_to_file(f"[ERROR] Failed to login to LinkedIn: {login_err}")
         check_captcha(page)
@@ -581,7 +598,13 @@ def scrape_search_results(page, context, keyword, location, seen_urls):
             def extract_details():
                 card.wait_for(state="visible", timeout=10000)
                 card.click(force=True, timeout=5000)
-                page.wait_for_timeout(random.randint(2000, 3000))
+                
+                desc_el = page.locator("div.show-more-less-html__markup, .description__text").first
+                try:
+                    desc_el.wait_for(state="visible", timeout=3000)
+                except:
+                    pass
+                page.wait_for_timeout(800)
                 check_captcha(page)
                 
                 show_more_selectors = [
@@ -717,10 +740,16 @@ def main():
             args=["--disable-blink-features=AutomationControlled"]
         )
         
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800}
-        )
+        session_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "linkedin_session.json")
+        context_args = {
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "viewport": {"width": 1280, "height": 800}
+        }
+        if os.path.exists(session_path):
+            context_args["storage_state"] = session_path
+            log_to_file("[INFO] Loading existing LinkedIn session for scraper...")
+            
+        context = browser.new_context(**context_args)
         
         page = context.new_page()
         page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")

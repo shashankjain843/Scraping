@@ -111,7 +111,18 @@
                 <label for="cities" style="display: block; font-weight: bold; margin-bottom: 5px;">Cities (comma-separated):</label>
                 <input type="text" id="cities" name="cities" value="{{ current_cities or 'Jaipur, Noida, Delhi, Gurgaon' }}" placeholder="e.g. Jaipur, Noida, Delhi, Gurgaon" required style="width: 100%; max-width: 400px; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 15px;">
             </div>
-            <button type="submit" class="btn">🔍 Run Scraper</button>
+            <div style="margin-bottom: 15px; display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" id="use_login" name="use_login" style="width: auto;">
+                <label for="use_login" style="font-weight: bold;">Attempt LinkedIn Account Login (Slower, might trigger verification/captcha)</label>
+            </div>
+            {% if scraper_running %}
+                <div style="background-color: #e2f0d9; border: 1px solid #a9d18e; color: #375623; padding: 12px; border-radius: 4px; margin-bottom: 15px; font-weight: bold;">
+                    🔄 Scraper is running in the background. Check logs below for progress. Feel free to refresh the page.
+                </div>
+                <button type="submit" class="btn" disabled style="background-color: #a6a6a6; cursor: not-allowed;">🔍 Scraper is running...</button>
+            {% else %}
+                <button type="submit" class="btn">🔍 Run Scraper</button>
+            {% endif %}
             <a href="/" class="btn" style="background-color: #6c757d;">🔄 Refresh / Load Saved</a>
         </form>
     </div>

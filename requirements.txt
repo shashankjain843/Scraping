@@ -6,3 +6,5 @@ openpyxl
 gunicorn
 apscheduler
 python-dotenv
+docx2pdf
+pywin32

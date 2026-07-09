@@ -10,6 +10,9 @@ import requests
 import smtplib
 import json
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 from email.header import Header
 from flask import Flask, render_template, request, jsonify, redirect, url_for
 from playwright.sync_api import sync_playwright
@@ -50,6 +53,10 @@ stats = {
     "emails_generated": 0,
     "emails_sent": 0
 }
+
+import threading
+scraper_running = False
+scraper_lock = threading.Lock()
 
 # Default Resume Data for Cold Email Generator
 RESUME_DATA = {
@@ -159,6 +166,33 @@ def extract_subject_and_body(email_text):
     body = "\n".join(body_lines).strip()
     return subject, body
 
+def convert_docx_to_pdf(docx_path, pdf_path):
+    try:
+        from docx2pdf import convert
+        convert(docx_path, pdf_path)
+        log_scheduler(f"[SUCCESS] Converted {docx_path} to {pdf_path} using docx2pdf.")
+        return True
+    except Exception as e:
+        log_scheduler(f"[WARNING] Failed to convert docx to pdf using docx2pdf: {e}. Trying raw win32com...")
+        
+    try:
+        import win32com.client
+        import pythoncom
+        pythoncom.CoInitialize()
+        word = win32com.client.Dispatch("Word.Application")
+        word.Visible = False
+        doc = word.Documents.Open(docx_path)
+        # Format 17 is for PDF
+        doc.SaveAs(pdf_path, FileFormat=17)
+        doc.Close()
+        word.Quit()
+        log_scheduler(f"[SUCCESS] Converted {docx_path} to {pdf_path} using Word COM.")
+        return True
+    except Exception as e:
+        log_scheduler(f"[ERROR] Failed to convert docx to pdf using Word COM: {e}.")
+        
+    return False
+
 def send_email_via_smtp(subject, body, recipient_email):
     global stats
     smtp_server = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
@@ -171,11 +205,51 @@ def send_email_via_smtp(subject, body, recipient_email):
         return False
         
     try:
-        msg = MIMEText(body, "plain", "utf-8")
+        # Create a multipart message
+        msg = MIMEMultipart()
         msg["Subject"] = Header(subject, "utf-8")
         msg["From"] = smtp_email
         msg["To"] = recipient_email
         
+        # Attach body
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+        
+        dir_path = os.path.dirname(os.path.abspath(__file__))
+        
+        # Look for PDF resume first
+        pdf_path = os.path.join(dir_path, "my_resume.pdf")
+        docx_path = os.path.join(dir_path, "my_resume.docx")
+        
+        resume_path = None
+        if os.path.exists(pdf_path):
+            resume_path = pdf_path
+        elif os.path.exists(docx_path):
+            log_scheduler("[INFO] PDF resume not found. Attempting to convert my_resume.docx to PDF...")
+            success = convert_docx_to_pdf(docx_path, pdf_path)
+            if success and os.path.exists(pdf_path):
+                resume_path = pdf_path
+            else:
+                log_scheduler("[WARNING] DOCX to PDF conversion failed. Falling back to original DOCX.")
+                resume_path = docx_path
+                
+        if resume_path:
+            filename = os.path.basename(resume_path)
+            try:
+                with open(resume_path, "rb") as attachment:
+                    part = MIMEBase("application", "octet-stream")
+                    part.set_payload(attachment.read())
+                encoders.encode_base64(part)
+                part.add_header(
+                    "Content-Disposition",
+                    f"attachment; filename= {filename}",
+                )
+                msg.attach(part)
+                log_scheduler(f"[INFO] Attached resume: {filename} to email.")
+            except Exception as att_err:
+                log_scheduler(f"[WARNING] Failed to attach resume: {att_err}")
+        else:
+            log_scheduler(f"[WARNING] Resume file (my_resume.pdf or my_resume.docx) not found in {dir_path}. Sending without attachment.")
+            
         server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
         server.starttls()
         server.login(smtp_email, smtp_password)
@@ -317,12 +391,23 @@ def check_captcha(page):
 
 def login_to_linkedin(page, email, password):
     log_scheduler("[INFO] Starting LinkedIn login process...")
+    
+    # Check if we are already logged in via storage_state
+    try:
+        page.goto("https://www.linkedin.com/feed/", timeout=20000)
+        page.wait_for_load_state("networkidle")
+        if "feed" in page.url or page.locator("a[data-global-header-item='linkedin-home']").first.count() > 0:
+            log_scheduler("[SUCCESS] Already logged in to LinkedIn (session active). Skipping credentials entry.")
+            return
+    except Exception as e:
+        log_scheduler(f"[INFO] Active session check failed or timed out: {e}. Proceeding with login...")
+        
     try:
         def goto_login():
             page.goto("https://www.linkedin.com/login", timeout=60000)
             page.wait_for_load_state("networkidle")
         
-        retry_action(goto_login, "Navigate to LinkedIn login page")
+        retry_action(goto_login, "Navigate to LinkedIn login page", max_attempts=1)
         check_captcha(page)
         
         # Fill email
@@ -344,19 +429,25 @@ def login_to_linkedin(page, email, password):
                 page.locator(submit_sel).click()
             page.wait_for_load_state("networkidle")
             
-        retry_action(click_submit, "Submit LinkedIn login form")
+        retry_action(click_submit, "Submit LinkedIn login form", max_attempts=1)
         check_captcha(page)
         
+        session_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "linkedin_session.json")
         if "feed" in page.url or "checkpoint" not in page.url:
             log_scheduler("[SUCCESS] Logged in to LinkedIn successfully.")
+            # Save storage state
+            page.context.storage_state(path=session_path)
+            log_scheduler(f"[INFO] Saved new LinkedIn session state to {session_path}")
         else:
             log_scheduler(f"[WARNING] Login might have requested security check. Current URL: {page.url}")
             check_captcha(page)
+            # Save storage state anyway in case it was a checkpoint they can bypass manually
+            page.context.storage_state(path=session_path)
     except Exception as login_err:
         log_scheduler(f"[ERROR] Failed to login to LinkedIn: {login_err}")
 
 # Playwright LinkedIn Scraper core
-def scrape_linkedin_jobs(cities=None, keyword="Data Analyst") -> list:
+def scrape_linkedin_jobs(cities=None, keyword="Data Analyst", use_login=False) -> list:
     import urllib.parse
     global stats
     all_jobs = []
@@ -374,19 +465,26 @@ def scrape_linkedin_jobs(cities=None, keyword="Data Analyst") -> list:
         "Jaipur": "Jaipur, Rajasthan, India"
     }
 
+    session_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "linkedin_session.json")
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800}
-        )
+        
+        context_args = {
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "viewport": {"width": 1280, "height": 800}
+        }
+        if os.path.exists(session_path):
+            context_args["storage_state"] = session_path
+            log_scheduler("[INFO] Loading existing LinkedIn session for scraper...")
+            
+        context = browser.new_context(**context_args)
         page = context.new_page()
         page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
-        # Log in if credentials available
+        # Log in if credentials available and requested
         linkedin_email = os.environ.get("LINKEDIN_EMAIL")
         linkedin_password = os.environ.get("LINKEDIN_PASSWORD")
-        if linkedin_email and linkedin_password:
+        if use_login and linkedin_email and linkedin_password:
             login_to_linkedin(page, linkedin_email, linkedin_password)
 
         for city in cities:
@@ -477,23 +575,28 @@ def scrape_linkedin_jobs(cities=None, keyword="Data Analyst") -> list:
                     # Details extraction with retry
                     def extract_card_details():
                         card.scroll_into_view_if_needed()
-                        page.wait_for_timeout(500)
-                        card.wait_for(state="visible", timeout=10000)
+                        page.wait_for_timeout(300)
+                        card.wait_for(state="visible", timeout=5000)
                         card.click(force=True, timeout=5000)
-                        page.wait_for_timeout(2000)
+                        
+                        desc_el = page.locator("div.show-more-less-html__markup, .description__text").first
+                        try:
+                            desc_el.wait_for(state="visible", timeout=3000)
+                        except:
+                            pass
+                        page.wait_for_timeout(800)
 
                         show_more_desc = page.locator("button.show-more-less-html__button, button:has-text('Show more'), button:has-text('See more')").first
                         if show_more_desc.count() > 0 and show_more_desc.is_visible():
                             try:
                                 sm_sel = "button.show-more-less-html__button" if page.locator("button.show-more-less-html__button").count() > 0 else "button:has-text('Show more')"
-                                page.wait_for_selector(sm_sel, state="visible", timeout=10000)
+                                page.wait_for_selector(sm_sel, state="visible", timeout=5000)
                                 show_more_desc.click(force=True, timeout=2000)
-                                page.wait_for_timeout(500)
+                                page.wait_for_timeout(400)
                             except:
                                 pass
 
                         description = "Not Mentioned"
-                        desc_el = page.locator("div.show-more-less-html__markup, .description__text").first
                         if desc_el.count() > 0:
                             description = desc_el.inner_text().strip()
                         return description
@@ -572,6 +675,7 @@ def generate_cold_email(api_key, company_name, job_title, job_description) -> Op
         "Generic buzzwords mat use karo. Write the email in English. "
         "Do not use placeholders like [Company Name], [Job Title], [Your Name], or any brackets. "
         "Always replace them with the actual names provided. "
+        "Always address the email to 'Dear Hiring Team,' or 'Dear [Company Name] Hiring Team,' instead of 'Dear Hiring Manager,' or 'Dear Recruiter,'. "
         "The response must start directly with 'Subject: [Subject Line]' followed by the email body. "
         "Do not write any introductory or concluding conversation text, just start with Subject:.\n"
         "CRITICAL: Do NOT use any spam-trigger words or phrases such as 'Free', 'Guaranteed', "
@@ -600,7 +704,7 @@ Job Listing details:
 - Job Title: {job_title}
 - Job Description/Required Skills: {job_description}
 
-Write a personalized cold email from {RESUME_DATA['Name']} to the recruiter or hiring manager at {company_name} for the '{job_title}' position. Match relevant skills and projects from his resume. Make it short (5-6 lines), professional, and direct. Start with the Subject line.
+Write a personalized cold email from {RESUME_DATA['Name']} to the hiring team at {company_name} for the '{job_title}' position. Match relevant skills and projects from his resume. Make it short (5-6 lines), professional, and direct. Address the email with 'Dear Hiring Team,'. Start with the Subject line.
 """
 
     payload = {
@@ -618,7 +722,11 @@ Write a personalized cold email from {RESUME_DATA['Name']} to the recruiter or h
         data = response.json()
         if "choices" in data and len(data["choices"]) > 0:
             stats["emails_generated"] += 1
-            return data["choices"][0]["message"]["content"].strip()
+            email_text = data["choices"][0]["message"]["content"].strip()
+            # Post-process to ensure "Dear Hiring Team" greeting
+            email_text = re.sub(r'Dear\s+Hiring\s+Manager\b', 'Dear Hiring Team', email_text, flags=re.IGNORECASE)
+            email_text = re.sub(r'Dear\s+Recruiter\b', 'Dear Hiring Team', email_text, flags=re.IGNORECASE)
+            return email_text
     except Exception as e:
         logger.error(f"OpenRouter API failed: {e}")
     return None
@@ -769,118 +877,106 @@ def home():
         scheduler_logs=scheduler_logs,
         scrape_interval=SCRAPE_INTERVAL_HOURS,
         current_keyword="Data Analyst",
-        current_cities="Jaipur, Noida, Delhi, Gurgaon"
+        current_cities="Jaipur, Noida, Delhi, Gurgaon",
+        scraper_running=scraper_running
     )
 
 @app.route("/scrape", methods=["GET", "POST"])
 def scrape():
-    error = None
-    jobs = []
+    global scraper_running
     
     keyword = "Data Analyst"
     cities_str = "Jaipur, Noida, Delhi, Gurgaon"
     
+    use_login = False
     if request.method == "POST":
         keyword = request.form.get("keyword", "Data Analyst").strip()
         cities_str = request.form.get("cities", "Jaipur, Noida, Delhi, Gurgaon").strip()
+        use_login = request.form.get("use_login") == "on"
     else:
         keyword = request.args.get("keyword", "Data Analyst").strip()
         cities_str = request.args.get("cities", "Jaipur, Noida, Delhi, Gurgaon").strip()
+        use_login = request.args.get("use_login") == "1"
         
     cities = [c.strip() for c in cities_str.split(",") if c.strip()]
     
     if request.method == "POST" or request.args.get("trigger") == "1":
-        try:
-            log_scheduler(f"Triggering manual LinkedIn scrape via Flask route for keyword '{keyword}' in cities: {cities}...")
-            new_jobs = scrape_linkedin_jobs(cities=cities, keyword=keyword)
+        with scraper_lock:
+            if scraper_running:
+                return redirect(url_for("home"))
+            scraper_running = True
             
-            headers = [
-                "Company Name", "City / Location", "Job Title", "Experience Required",
-                "Required Skills", "Salary Range", "Job Posting Link / URL",
-                "Source Platform", "Posting Date", "Company Website", "Company Size / Industry",
-                "Search Keyword Used", "Application Status"
-            ]
-            
-            # Load existing jobs
-            existing_jobs = []
-            if os.path.exists(JOBS_JSON):
-                try:
-                    with open(JOBS_JSON, "r", encoding="utf-8") as f:
-                        existing_jobs = json.load(f)
-                except:
-                    pass
-            elif os.path.exists(JOBS_CSV):
-                try:
-                    with open(JOBS_CSV, "r", encoding="utf-8-sig") as f:
-                        existing_jobs = list(csv.DictReader(f))
-                except:
-                    pass
-            
-            combined = existing_jobs + new_jobs
-            seen_urls = set()
-            unique_jobs = []
-            for j in combined:
-                if "Application Status" not in j or not j["Application Status"]:
-                    j["Application Status"] = "Not Applied"
-                if "Search Keyword Used" not in j or not j["Search Keyword Used"]:
-                    j["Search Keyword Used"] = keyword
+        def scrape_worker(cities_list, keyword_str, login_flag):
+            global scraper_running
+            try:
+                log_scheduler(f"Triggering manual LinkedIn scrape via background thread for keyword '{keyword_str}' (use_login={login_flag}) in cities: {cities_list}...")
+                new_jobs = scrape_linkedin_jobs(cities=cities_list, keyword=keyword_str, use_login=login_flag)
                 
-                url = j.get("Job Posting Link / URL", "").split("?")[0].rstrip("/")
-                if url:
-                    if url not in seen_urls:
-                        seen_urls.add(url)
-                        unique_jobs.append(j)
-                else:
-                    key = (j.get("Job Title", "").strip().lower(), j.get("Company Name", "").strip().lower())
-                    if key not in seen_urls:
-                        seen_urls.add(key)
-                        unique_jobs.append(j)
-                        
-            # Save to JSON
-            with open(JOBS_JSON, "w", encoding="utf-8") as f:
-                json.dump(unique_jobs, f, indent=4, ensure_ascii=False)
+                headers = [
+                    "Company Name", "City / Location", "Job Title", "Experience Required",
+                    "Required Skills", "Salary Range", "Job Posting Link / URL",
+                    "Source Platform", "Posting Date", "Company Website", "Company Size / Industry",
+                    "Search Keyword Used", "Application Status"
+                ]
                 
-            # Save to CSV
-            with open(JOBS_CSV, "w", newline="", encoding="utf-8-sig") as f:
-                writer = csv.DictWriter(f, fieldnames=headers)
-                writer.writeheader()
-                for j in unique_jobs:
-                    row = {h: j.get(h, "") for h in headers}
-                    writer.writerow(row)
+                # Load existing jobs
+                existing_jobs = []
+                if os.path.exists(JOBS_JSON):
+                    try:
+                        with open(JOBS_JSON, "r", encoding="utf-8") as f:
+                            existing_jobs = json.load(f)
+                    except:
+                        pass
+                elif os.path.exists(JOBS_CSV):
+                    try:
+                        with open(JOBS_CSV, "r", encoding="utf-8-sig") as f:
+                            existing_jobs = list(csv.DictReader(f))
+                    except:
+                        pass
+                
+                combined = existing_jobs + new_jobs
+                seen_urls = set()
+                unique_jobs = []
+                for j in combined:
+                    if "Application Status" not in j or not j["Application Status"]:
+                        j["Application Status"] = "Not Applied"
+                    if "Search Keyword Used" not in j or not j["Search Keyword Used"]:
+                        j["Search Keyword Used"] = keyword_str
                     
-            log_scheduler(f"Scraped and merged. Total unique jobs in database: {len(unique_jobs)}")
-            jobs = unique_jobs
-            
-        except FileNotFoundError as fnf:
-            error = str(fnf)
-        except ValueError as val_e:
-            error = str(val_e)
-        except Exception as e:
-            error = f"LinkedIn Scraper failed (LinkedIn captcha/block or timeout): {str(e)}"
-            logger.exception("Manual scrape failed")
-    else:
-        if os.path.exists(JOBS_JSON):
-            try:
-                with open(JOBS_JSON, "r", encoding="utf-8") as f:
-                    jobs = json.load(f)
-            except:
-                pass
-        elif os.path.exists(JOBS_CSV):
-            try:
-                with open(JOBS_CSV, mode="r", encoding="utf-8-sig") as f:
-                    reader = csv.DictReader(f)
-                    jobs = list(reader)
+                    url = j.get("Job Posting Link / URL", "").split("?")[0].rstrip("/")
+                    if url:
+                        if url not in seen_urls:
+                            seen_urls.add(url)
+                            unique_jobs.append(j)
+                    else:
+                        key = (j.get("Job Title", "").strip().lower(), j.get("Company Name", "").strip().lower())
+                        if key not in seen_urls:
+                            seen_urls.add(key)
+                            unique_jobs.append(j)
+                            
+                # Save to JSON
+                with open(JOBS_JSON, "w", encoding="utf-8") as f:
+                    json.dump(unique_jobs, f, indent=4, ensure_ascii=False)
+                    
+                # Save to CSV
+                with open(JOBS_CSV, "w", newline="", encoding="utf-8-sig") as f:
+                    writer = csv.DictWriter(f, fieldnames=headers)
+                    writer.writeheader()
+                    for j in unique_jobs:
+                        row = {h: j.get(h, "") for h in headers}
+                        writer.writerow(row)
+                log_scheduler(f"[SUCCESS] Background scraper complete. Found {len(new_jobs)} new jobs. Total unique jobs in database: {len(unique_jobs)}")
             except Exception as e:
-                error = f"Failed to load existing jobs CSV: {e}"
-                
-    return render_template(
-        "index.html",
-        jobs=jobs,
-        scrape_error=error,
-        jobs_count=len(jobs),
-        current_keyword=keyword,
-        current_cities=cities_str
-    )
+                log_scheduler(f"[ERROR] Background scraper failed: {e}")
+                logger.exception("Background scrape failed")
+            finally:
+                with scraper_lock:
+                    scraper_running = False
+                    
+        import threading
+        threading.Thread(target=scrape_worker, args=(cities, keyword, use_login)).start()
+        
+    return redirect(url_for("home"))
 
 @app.route("/generate-emails", methods=["GET", "POST"])
 def generate_emails_route():

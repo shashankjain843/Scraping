@@ -206,6 +206,7 @@ def generate_cold_email_custom(api_key, company_name, job_title, job_description
         "Generic buzzwords mat use karo. Write the email in English. "
         "Do not use placeholders like [Company Name], [Job Title], [Your Name], or any brackets. "
         "Always replace them with the actual names provided. "
+        "Always address the email to 'Dear Hiring Team,' or 'Dear [Company Name] Hiring Team,' instead of 'Dear Hiring Manager,' or 'Dear Recruiter,'. "
         "The response must start directly with 'Subject: [Subject Line]' followed by the email body. "
         "Do not write any introductory or concluding conversation text, just start with Subject:."
     )
@@ -235,7 +236,7 @@ Job Listing details:
 - Job Title: {job_title}
 - Job Description/Required Skills: {job_description}
 
-Write a personalized cold email from {resume_data.get('Name')} to the recruiter or hiring manager at {company_name} for the '{job_title}' position. Match relevant skills and projects from his resume. Make it short (5-6 lines), professional, and direct. Start with the Subject line.
+Write a personalized cold email from {resume_data.get('Name')} to the hiring team at {company_name} for the '{job_title}' position. Match relevant skills and projects from his resume. Make it short (5-6 lines), professional, and direct. Address the email with 'Dear Hiring Team,'. Start with the Subject line.
 """
 
     payload = {
@@ -252,7 +253,11 @@ Write a personalized cold email from {resume_data.get('Name')} to the recruiter 
         response.raise_for_status()
         data = response.json()
         if "choices" in data and len(data["choices"]) > 0:
-            return data["choices"][0]["message"]["content"].strip()
+            email_text = data["choices"][0]["message"]["content"].strip()
+            # Post-process to ensure "Dear Hiring Team" greeting
+            email_text = re.sub(r'Dear\s+Hiring\s+Manager\b', 'Dear Hiring Team', email_text, flags=re.IGNORECASE)
+            email_text = re.sub(r'Dear\s+Recruiter\b', 'Dear Hiring Team', email_text, flags=re.IGNORECASE)
+            return email_text
     except Exception as e:
         logger.error(f"API call failed: {e}")
     return None
@@ -402,16 +407,22 @@ def job_scraper_worker(task_id: str, cities_list: List[Dict[str, str]], target_j
                             document.body.style.overflow = 'auto';
                         """)
                         card.scroll_into_view_if_needed()
-                        page.wait_for_timeout(500)
+                        page.wait_for_timeout(300)
                         card.click(force=True, timeout=5000)
-                        page.wait_for_timeout(random.randint(2000, 3000))
+                        
+                        desc_el = page.locator("div.show-more-less-html__markup, .description__text").first
+                        try:
+                            desc_el.wait_for(state="visible", timeout=3000)
+                        except:
+                            pass
+                        page.wait_for_timeout(800)
 
                         # Expand description
                         show_more_desc = page.locator("button.show-more-less-html__button, button:has-text('Show more'), button:has-text('See more')").first
                         if show_more_desc.count() > 0 and show_more_desc.is_visible():
                             try:
                                 show_more_desc.click(force=True, timeout=3000)
-                                page.wait_for_timeout(500)
+                                page.wait_for_timeout(400)
                             except:
                                 pass
 
@@ -876,6 +887,9 @@ async def serve_dashboard():
 
 import smtplib
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 from email.header import Header
 
 def send_email_via_smtp(subject, body, recipient_email):
@@ -889,11 +903,41 @@ def send_email_via_smtp(subject, body, recipient_email):
         return False
         
     try:
-        msg = MIMEText(body, "plain", "utf-8")
+        # Create a multipart message
+        msg = MIMEMultipart()
         msg["Subject"] = Header(subject, "utf-8")
         msg["From"] = smtp_email
         msg["To"] = recipient_email
         
+        # Attach body
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+        
+        # Look for any file starting with "my_resume." in the same directory
+        dir_path = os.path.dirname(os.path.abspath(__file__))
+        resume_files = [f for f in os.listdir(dir_path) if f.lower().startswith("my_resume.") and os.path.isfile(os.path.join(dir_path, f))]
+        
+        if resume_files:
+            # Prefer PDF if both exist, otherwise take the first one
+            pdf_resumes = [f for f in resume_files if f.lower().endswith(".pdf")]
+            resume_file = pdf_resumes[0] if pdf_resumes else resume_files[0]
+            resume_path = os.path.join(dir_path, resume_file)
+            filename = os.path.basename(resume_path)
+            try:
+                with open(resume_path, "rb") as attachment:
+                    part = MIMEBase("application", "octet-stream")
+                    part.set_payload(attachment.read())
+                encoders.encode_base64(part)
+                part.add_header(
+                    "Content-Disposition",
+                    f"attachment; filename= {filename}",
+                )
+                msg.attach(part)
+                logger.info(f"Attached resume: {filename} to email.")
+            except Exception as att_err:
+                logger.warning(f"Failed to attach resume: {att_err}")
+        else:
+            logger.warning(f"Resume file starting with 'my_resume.' not found in {dir_path}. Sending without attachment.")
+            
         server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
         server.starttls()
         server.login(smtp_email, smtp_password)
