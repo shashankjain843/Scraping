@@ -791,9 +791,10 @@ def scrape_linkedin_jobs(cities=None, keyword="Data Analyst", use_login=False) -
 
     return all_jobs
 
-# OpenRouter Email request helper
+# OpenRouter / Gemini Email request helper
 def generate_cold_email(api_key, company_name, job_title, job_description) -> Optional[str]:
     global stats
+    api_key = api_key.strip()
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -840,29 +841,28 @@ Write a personalized cold email from {RESUME_DATA['Name']} to the hiring team at
 Do NOT include candidate's name in the subject line. Do NOT write any sign-off or signature block.
 """
 
-    # Prioritize cheap paid models (that work with your key balance) and then free models
-    MODELS = [
-        "google/gemini-2.5-flash",
-        "deepseek/deepseek-chat",
-        "meta-llama/llama-3.3-70b-instruct:free",
-        "openai/gpt-oss-20b:free",
-        "meta-llama/llama-3.2-3b-instruct:free",
-        "nousresearch/hermes-3-llama-3.1-405b:free",
-        "google/gemma-4-31b-it:free",
-        "qwen/qwen3-coder:free",
+    api_url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    models = [
+        "gemini-3.5-flash",
+        "gemini-flash-latest",
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-lite",
+        "gemini-2.5-pro",
+        "gemini-pro-latest"
     ]
+    log_scheduler(f"[API ROUTE] Routing directly to Google Gemini API...")
 
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt}
     ]
 
-    for model_id in MODELS:
+    for model_id in models:
         payload = {
             "model": model_id,
             "messages": messages,
             "temperature": 0.7,
-            "max_tokens": 800  # Crucial to bypass OpenRouter 402/429 budget checks
+            "max_tokens": 800  # Crucial to bypass budget checks
         }
         
         attempts = 0
@@ -871,17 +871,17 @@ Do NOT include candidate's name in the subject line. Do NOT write any sign-off o
         
         while attempts < max_attempts:
             try:
-                response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=25)
+                response = requests.post(api_url, headers=headers, json=payload, timeout=25)
                 
                 # Check for 402 budget exhaustion and immediately try next model
                 if response.status_code == 402:
-                    log_scheduler(f"[WARNING] OpenRouter 402 (Insufficient Credits / Daily Free Limit reached) on '{model_id}'. Trying next model...")
+                    log_scheduler(f"[WARNING] API 402 (Insufficient Credits / Daily Free Limit reached) on '{model_id}'. Trying next model...")
                     break
                     
-                # Check for 429 rate limits and retry with backoff
+                # Check for 429 rate/quota limits and retry with backoff
                 if response.status_code == 429:
                     attempts += 1
-                    log_scheduler(f"[INFO] OpenRouter rate limit reached on '{model_id}'. Retrying in {delay}s...")
+                    log_scheduler(f"[INFO] API rate limit reached on '{model_id}'. Retrying in {delay}s...")
                     time.sleep(delay)
                     delay *= 2
                     continue
@@ -916,11 +916,11 @@ Do NOT include candidate's name in the subject line. Do NOT write any sign-off o
                 if attempts >= max_attempts:
                     logger.warning(f"Model '{model_id}' failed: {e}. Trying next model...")
                     break
-                log_scheduler(f"[INFO] OpenRouter busy. Retrying in {delay}s...")
+                log_scheduler(f"[WARNING] API request failed on '{model_id}': {e}. Retrying in {delay}s...")
                 time.sleep(delay)
                 delay *= 2
 
-    logger.error("OpenRouter API failed: All models exhausted or rate-limited.")
+    logger.error("Gemini API failed: All models exhausted or rate-limited.")
     return None
 
 

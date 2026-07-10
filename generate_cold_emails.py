@@ -307,6 +307,7 @@ def get_api_key():
 
 def generate_cold_email(api_key, company_name, job_title, job_description):
     global stats
+    api_key = api_key.strip()
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -347,8 +348,12 @@ Job Listing details:
 Write a personalized cold email from {RESUME_DATA['Name']} to the hiring team at {company_name} for the '{job_title}' position. Match relevant skills and projects from his resume. Make it short (5-6 lines), professional, and direct. Address the email with 'Dear Hiring Team,'. Start with the Subject line.
 """
 
+    api_url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    model_name = "gemini-2.5-flash"
+    log_to_file(f"[API ROUTE] Routing directly to Google Gemini API...")
+
     payload = {
-        "model": MODEL_NAME,
+        "model": model_name,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
@@ -357,7 +362,7 @@ Write a personalized cold email from {RESUME_DATA['Name']} to the hiring team at
     }
 
     try:
-        response = requests.post(OPENROUTER_API_URL, headers=headers, json=payload, timeout=30)
+        response = requests.post(api_url, headers=headers, json=payload, timeout=30)
         response.raise_for_status()
         data = response.json()
         if "choices" in data and len(data["choices"]) > 0:
