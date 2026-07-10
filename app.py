@@ -58,6 +58,12 @@ import threading
 scraper_running = False
 scraper_lock = threading.Lock()
 
+apply_running = False
+apply_thread_lock = threading.Lock()
+
+email_running = False
+email_lock = threading.Lock()
+
 # Default Resume Data for Cold Email Generator
 RESUME_DATA = {
     "Name": "Shashank Jain",
@@ -393,19 +399,51 @@ def check_captcha(page):
     if "checkpoint/challenge" in url_lower or "captcha" in url_lower or page.locator("text='Security verification'").count() > 0 or page.locator("text='Please solve the puzzle'").count() > 0:
         log_scheduler("[ALERT] CAPTCHA or Security Verification page loaded. Captcha handler is limited in headless environment!")
 
+def is_linkedin_logged_in(page):
+    """Check karo ki LinkedIn pe actually logged in hain ya nahi — DOM elements se."""
+    try:
+        # Profile nav icon ya feed page ka actual element check karo
+        logged_in_selectors = [
+            "div.global-nav__me",          # Profile/me icon in nav
+            "img.global-nav__me-photo",    # Profile photo
+            "a[href*='/feed/']"             # Feed link in nav
+        ]
+        for sel in logged_in_selectors:
+            if page.locator(sel).first.count() > 0:
+                return True
+        # Agar login page pe hain toh logged out
+        if "login" in page.url or "authwall" in page.url or "signup" in page.url:
+            return False
+        return False
+    except Exception:
+        return False
+
 def login_to_linkedin(page, email, password):
     log_scheduler("[INFO] Starting LinkedIn login process...")
+    session_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "linkedin_session.json")
+
+    # Pehle check karo: session file se already logged in hain?
+    if os.path.exists(session_path):
+        try:
+            page.goto("https://www.linkedin.com/feed/", timeout=25000)
+            page.wait_for_load_state("networkidle", timeout=15000)
+            if is_linkedin_logged_in(page):
+                log_scheduler("[SUCCESS] Session valid hai. LinkedIn login skip kar rahe hain.")
+                return
+            else:
+                log_scheduler("[INFO] Session expired ya invalid hai. Purana session delete karke fresh login karenge...")
+                try:
+                    os.remove(session_path)
+                except Exception:
+                    pass
+        except Exception as e:
+            log_scheduler(f"[INFO] Session check fail hua: {e}. Fresh login karenge...")
+            try:
+                os.remove(session_path)
+            except Exception:
+                pass
     
-    # Check if we are already logged in via storage_state
-    try:
-        page.goto("https://www.linkedin.com/feed/", timeout=20000)
-        page.wait_for_load_state("networkidle")
-        if "feed" in page.url or page.locator("a[data-global-header-item='linkedin-home']").first.count() > 0:
-            log_scheduler("[SUCCESS] Already logged in to LinkedIn (session active). Skipping credentials entry.")
-            return
-    except Exception as e:
-        log_scheduler(f"[INFO] Active session check failed or timed out: {e}. Proceeding with login...")
-        
+    # Fresh login karo
     try:
         def goto_login():
             page.goto("https://www.linkedin.com/login", timeout=60000)
@@ -436,26 +474,27 @@ def login_to_linkedin(page, email, password):
         retry_action(click_submit, "Submit LinkedIn login form", max_attempts=1)
         check_captcha(page)
         
-        session_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "linkedin_session.json")
-        if "feed" in page.url or "checkpoint" not in page.url:
-            log_scheduler("[SUCCESS] Logged in to LinkedIn successfully.")
-            # Save storage state
+        # Login verify karo DOM se
+        page.wait_for_timeout(2000)
+        if is_linkedin_logged_in(page):
+            log_scheduler("[SUCCESS] LinkedIn pe successfully login ho gaye!")
             page.context.storage_state(path=session_path)
-            log_scheduler(f"[INFO] Saved new LinkedIn session state to {session_path}")
-        else:
-            log_scheduler(f"[WARNING] Login might have requested security check. Current URL: {page.url}")
+            log_scheduler(f"[INFO] Naya session save kar diya: {session_path}")
+        elif "checkpoint" in page.url:
+            log_scheduler(f"[WARNING] LinkedIn ne security check maanga. URL: {page.url}")
             check_captcha(page)
-            # Save storage state anyway in case it was a checkpoint they can bypass manually
+            page.context.storage_state(path=session_path)
+        else:
+            log_scheduler(f"[WARNING] Login ke baad bhi logged-in elements nahi mile. URL: {page.url}")
             page.context.storage_state(path=session_path)
     except Exception as login_err:
-        log_scheduler(f"[ERROR] Failed to login to LinkedIn: {login_err}")
+        log_scheduler(f"[ERROR] LinkedIn login fail hua: {login_err}")
 
 # Playwright LinkedIn Scraper core
 def scrape_linkedin_jobs(cities=None, keyword="Data Analyst", use_login=False) -> list:
     import urllib.parse
     global stats
     all_jobs = []
-    seen_companies = set()
     target_job_count = 15  # Limit per city for better performance
 
     if not cities:
@@ -493,12 +532,16 @@ def scrape_linkedin_jobs(cities=None, keyword="Data Analyst", use_login=False) -
 
         for city in cities:
             city_clean = city.strip()
+            seen_companies = set()  # Har city ke liye fresh duplicate check
             city_query = city_mappings.get(city_clean, f"{city_clean}, India")
             url_keyword = urllib.parse.quote(keyword)
             url_location = urllib.parse.quote(city_query)
             search_url = f"https://www.linkedin.com/jobs/search?keywords={url_keyword}&location={url_location}&distance=25&sortBy=DD&f_TPR=r86400"
 
-            log_scheduler(f"Scraping city: {city_clean} ({city_query}) for keyword '{keyword}'...")
+            log_scheduler(f"\n{'='*60}")
+            log_scheduler(f"[CITY {cities.index(city)+1}/{len(cities)}] Scraping: {city_clean} | Keyword: '{keyword}'")
+            log_scheduler(f"{'='*60}")
+            log_scheduler(f"[URL] {search_url}")
             
             def goto_search():
                 page.goto(search_url, timeout=60000)
@@ -510,6 +553,18 @@ def scrape_linkedin_jobs(cities=None, keyword="Data Analyst", use_login=False) -
             except Exception as e:
                 log_scheduler(f"[ERROR] Failed to load search page for {city_clean}: {e}")
                 continue
+
+            # Fallback check if 0 jobs found with 24h filter
+            job_cards = page.locator("div.base-card, .job-search-card, li.jobs-search-results__list-item")
+            if job_cards.count() == 0 and "f_TPR=r86400" in search_url:
+                fallback_url = search_url.replace("&f_TPR=r86400", "")
+                log_scheduler(f"[INFO] 0 jobs found with 24h filter for {city_clean}. Retrying with fallback URL: {fallback_url}")
+                try:
+                    page.goto(fallback_url, timeout=60000)
+                    page.wait_for_load_state("networkidle")
+                    page.wait_for_timeout(5000)
+                except Exception as fe:
+                    log_scheduler(f"[ERROR] Failed to load fallback search page for {city_clean}: {fe}")
 
             # Scroll to load job cards
             last_count = 0
@@ -529,6 +584,7 @@ def scrape_linkedin_jobs(cities=None, keyword="Data Analyst", use_login=False) -
                     break
                 if count == last_count:
                     no_change_iterations += 1
+                    log_scheduler(f"[SCROLL] {city_clean}: {count} cards loaded (no change #{no_change_iterations})...")
                     if no_change_iterations > 6:
                         break
                 else:
@@ -551,10 +607,11 @@ def scrape_linkedin_jobs(cities=None, keyword="Data Analyst", use_login=False) -
                     except:
                         pass
 
-            # Extract info
             job_cards = page.locator("div.base-card, .job-search-card, li.jobs-search-results__list-item")
             card_count = min(job_cards.count(), target_job_count * 2)
-            log_scheduler(f"Found {job_cards.count()} job cards for {city_clean}. Processing top {card_count}...")
+            log_scheduler(f"[FOUND] {job_cards.count()} job cards for {city_clean}. Processing top {card_count}...")
+            city_saved = 0
+            city_skipped = 0
 
             for i in range(card_count):
                 card = job_cards.nth(i)
@@ -565,15 +622,20 @@ def scrape_linkedin_jobs(cities=None, keyword="Data Analyst", use_login=False) -
                     job_url = safe_extract_any(card, ["a.base-card__full-link", "a.job-search-card__link", "a"], attribute="href")
 
                     if not job_url or not job_title or not company_name:
+                        city_skipped += 1
                         continue
 
                     clean_url = job_url.split("?")[0]
 
                     if not is_valid_title(job_title, keyword):
+                        log_scheduler(f"  [{i+1}/{card_count}] SKIP (title mismatch): '{job_title}'")
+                        city_skipped += 1
                         continue
 
                     comp_key = company_name.strip().lower()
                     if comp_key in seen_companies:
+                        log_scheduler(f"  [{i+1}/{card_count}] SKIP (duplicate company): {company_name}")
+                        city_skipped += 1
                         continue
 
                     # Details extraction with retry
@@ -605,10 +667,12 @@ def scrape_linkedin_jobs(cities=None, keyword="Data Analyst", use_login=False) -
                             description = desc_el.inner_text().strip()
                         return description
 
+                    log_scheduler(f"  [{i+1}/{card_count}] Processing: '{job_title}' @ {company_name}...")
                     try:
                         description = retry_action(extract_card_details, f"Extract details for {job_title} at {company_name}")
                     except Exception as card_err:
-                        log_scheduler(f"[WARNING] Skipping card {i} due to details extraction failure: {card_err}")
+                        log_scheduler(f"  [{i+1}/{card_count}] WARNING: Skipping '{job_title}' — {card_err}")
+                        city_skipped += 1
                         continue
 
                     criteria_items = page.locator("li.description__job-criteria-item")
@@ -628,6 +692,8 @@ def scrape_linkedin_jobs(cities=None, keyword="Data Analyst", use_login=False) -
                     industry = criteria_dict.get("Industries", "Not Mentioned")
 
                     if not is_fresher_friendly(job_title, description, criteria_exp):
+                        log_scheduler(f"  [{i+1}/{card_count}] SKIP (not fresher friendly): '{job_title}' — Seniority: {criteria_exp}")
+                        city_skipped += 1
                         continue
 
                     skills = extract_skills(description)
@@ -655,11 +721,19 @@ def scrape_linkedin_jobs(cities=None, keyword="Data Analyst", use_login=False) -
                     all_jobs.append(job_data)
                     seen_companies.add(comp_key)
                     stats["jobs_scraped"] += 1
+                    city_saved += 1
+                    log_scheduler(f"  [{i+1}/{card_count}] ✔ SAVED [{city_saved}]: '{job_title}' @ {company_name} | Skills: {skills}")
 
                 except Exception as card_e:
                     logger.error(f"Error extracting card details: {card_e}")
+                    city_skipped += 1
+
+            log_scheduler(f"[CITY DONE] {city_clean}: {city_saved} jobs saved, {city_skipped} skipped. Total so far: {len(all_jobs)}")
 
         browser.close()
+        log_scheduler(f"\n{'='*60}")
+        log_scheduler(f"[SCRAPING COMPLETE] Total {len(all_jobs)} jobs scraped across {len(cities)} cities.")
+        log_scheduler(f"{'='*60}\n")
 
     return all_jobs
 
@@ -711,28 +785,47 @@ Job Listing details:
 Write a personalized cold email from {RESUME_DATA['Name']} to the hiring team at {company_name} for the '{job_title}' position. Match relevant skills and projects from his resume. Make it short (5-6 lines), professional, and direct. Address the email with 'Dear Hiring Team,'. Start with the Subject line.
 """
 
-    payload = {
-        "model": "openai/gpt-4o-mini",
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        "temperature": 0.7
-    }
+    # Ordered list of free models - if one fails (429/404), the next is tried automatically
+    FREE_MODELS = [
+        "openai/gpt-oss-20b:free",
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "meta-llama/llama-3.2-3b-instruct:free",
+        "nousresearch/hermes-3-llama-3.1-405b:free",
+        "google/gemma-4-31b-it:free",
+        "qwen/qwen3-coder:free",
+    ]
 
-    try:
-        response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=30)
-        response.raise_for_status()
-        data = response.json()
-        if "choices" in data and len(data["choices"]) > 0:
-            stats["emails_generated"] += 1
-            email_text = data["choices"][0]["message"]["content"].strip()
-            # Post-process to ensure "Dear Hiring Team" greeting
-            email_text = re.sub(r'Dear\s+Hiring\s+Manager\b', 'Dear Hiring Team', email_text, flags=re.IGNORECASE)
-            email_text = re.sub(r'Dear\s+Recruiter\b', 'Dear Hiring Team', email_text, flags=re.IGNORECASE)
-            return email_text
-    except Exception as e:
-        logger.error(f"OpenRouter API failed: {e}")
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
+    ]
+
+    for model_id in FREE_MODELS:
+        payload = {
+            "model": model_id,
+            "messages": messages,
+            "temperature": 0.7
+        }
+        try:
+            response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=20)
+            if response.status_code in (404, 429):
+                logger.warning(f"Model '{model_id}' returned {response.status_code}. Trying next model...")
+                continue
+            response.raise_for_status()
+            data = response.json()
+            if "choices" in data and len(data["choices"]) > 0:
+                stats["emails_generated"] += 1
+                email_text = data["choices"][0]["message"]["content"].strip()
+                # Post-process to ensure "Dear Hiring Team" greeting
+                email_text = re.sub(r'Dear\s+Hiring\s+Manager\b', 'Dear Hiring Team', email_text, flags=re.IGNORECASE)
+                email_text = re.sub(r'Dear\s+Recruiter\b', 'Dear Hiring Team', email_text, flags=re.IGNORECASE)
+                log_scheduler(f"[INFO] Email generated using model: {model_id}")
+                return email_text
+        except Exception as e:
+            logger.warning(f"Model '{model_id}' failed: {e}. Trying next model...")
+            continue
+
+    logger.error("OpenRouter API failed: All free models exhausted or rate-limited.")
     return None
 
 # Scheduled worker pipeline
@@ -882,7 +975,8 @@ def home():
         scrape_interval=SCRAPE_INTERVAL_HOURS,
         current_keyword="Data Analyst",
         current_cities="Jaipur, Noida, Delhi, Gurgaon",
-        scraper_running=scraper_running
+        scraper_running=scraper_running,
+        apply_running=apply_running
     )
 
 @app.route("/scrape", methods=["GET", "POST"])
@@ -970,6 +1064,79 @@ def scrape():
                         row = {h: j.get(h, "") for h in headers}
                         writer.writerow(row)
                 log_scheduler(f"[SUCCESS] Background scraper complete. Found {len(new_jobs)} new jobs. Total unique jobs in database: {len(unique_jobs)}")
+
+                # --- AUTO: Scraping ke baad seedha cold email generate karo ---
+                api_key = os.environ.get("OPENROUTER_API_KEY")
+                if api_key and new_jobs:
+                    log_scheduler(f"[AUTO EMAIL] Scraping complete. {len(new_jobs)} naye jobs ke liye cold emails generate karna shuru...")
+                    try:
+                        # Already generated emails ke URLs load karo (duplicates skip)
+                        already_generated_urls = set()
+                        if os.path.exists(EMAILS_CSV):
+                            try:
+                                with open(EMAILS_CSV, mode="r", encoding="utf-8-sig") as ef:
+                                    for erow in csv.DictReader(ef):
+                                        url = erow.get("Job URL", "").split("?")[0].rstrip("/")
+                                        if url:
+                                            already_generated_urls.add(url)
+                            except Exception:
+                                pass
+
+                        file_mode = "a" if already_generated_urls else "w"
+                        email_success = 0
+                        all_emails_data = []
+
+                        # Load existing emails JSON
+                        if os.path.exists(EMAILS_JSON):
+                            try:
+                                with open(EMAILS_JSON, "r", encoding="utf-8") as f:
+                                    all_emails_data = json.load(f)
+                            except Exception:
+                                all_emails_data = []
+
+                        with open(EMAILS_CSV, file_mode, newline="", encoding="utf-8-sig") as out_f:
+                            writer = csv.writer(out_f)
+                            if file_mode == "w":
+                                writer.writerow(["Company", "Job Title", "Generated Email", "Job URL", "Recipient Email", "Send Status"])
+
+                            for job in new_jobs:
+                                job_url_key = (job.get("Job Posting Link / URL") or "").split("?")[0].rstrip("/")
+                                if job_url_key and job_url_key in already_generated_urls:
+                                    continue
+
+                                email_content = generate_cold_email(
+                                    api_key=api_key,
+                                    company_name=job.get("Company Name", ""),
+                                    job_title=job.get("Job Title", ""),
+                                    job_description=job.get("Required Skills", "")
+                                )
+
+                                if email_content:
+                                    recipient = find_email_in_text(job.get("Required Skills", ""))
+                                    writer.writerow([job.get("Company Name"), job.get("Job Title"), email_content, job.get("Job Posting Link / URL", ""), recipient or "Not Found", "Not Sent"])
+                                    out_f.flush()
+                                    email_success += 1
+                                    all_emails_data.append({
+                                        "Company": job.get("Company Name"),
+                                        "Job Title": job.get("Job Title"),
+                                        "Generated Email": email_content,
+                                        "Job URL": job.get("Job Posting Link / URL", ""),
+                                        "Recipient Email": recipient or "Not Found",
+                                        "Send Status": "Not Sent"
+                                    })
+                                    already_generated_urls.add(job_url_key)
+
+                                time.sleep(1.0)  # API rate limit avoid karo
+
+                        with open(EMAILS_JSON, "w", encoding="utf-8") as json_f:
+                            json.dump(all_emails_data, json_f, indent=4, ensure_ascii=False)
+
+                        log_scheduler(f"[AUTO EMAIL] {email_success} cold emails generate ho gaye aur save ho gaye.")
+                    except Exception as email_err:
+                        log_scheduler(f"[AUTO EMAIL ERROR] Email generation fail hua: {email_err}")
+                elif not api_key:
+                    log_scheduler("[AUTO EMAIL] OPENROUTER_API_KEY nahi mila. Cold email generation skip.")
+
             except Exception as e:
                 log_scheduler(f"[ERROR] Background scraper failed: {e}")
                 logger.exception("Background scrape failed")
@@ -982,106 +1149,150 @@ def scrape():
         
     return redirect(url_for("home"))
 
+@app.route("/scraper-status")
+def scraper_status():
+    global scraper_running
+    return jsonify({"running": scraper_running})
+
+@app.route("/email-status")
+def email_status():
+    global email_running
+    return jsonify({"running": email_running})
+
 @app.route("/generate-emails", methods=["GET", "POST"])
 def generate_emails_route():
-    error = None
-    emails = []
-    
+    global email_running
+
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
-        error = "OPENROUTER_API_KEY environment variable is not set. Please set it in your environment."
-        return render_template("index.html", email_error=error)
-        
+        return jsonify({"error": "OPENROUTER_API_KEY not set"}), 500
+
     if request.method == "POST" or request.args.get("trigger") == "1":
-        if not os.path.exists(JOBS_CSV):
-            error = "No scraped jobs CSV found. Please run the job scraper first."
-            return render_template("index.html", email_error=error)
-            
-        jobs = []
-        try:
-            with open(JOBS_CSV, mode="r", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                jobs = list(reader)
-        except Exception as e:
-            error = f"Failed to read scraped jobs file: {str(e)}"
-            return render_template("index.html", email_error=error)
-            
-        if not jobs:
-            error = "Scraped jobs CSV file is empty. Please run the scraper first."
-            return render_template("index.html", email_error=error)
-            
-        success_count = 0
-        try:
-            with open(EMAILS_CSV, "w", newline="", encoding="utf-8-sig") as out_f:
-                writer = csv.writer(out_f)
-                writer.writerow(["Company", "Job Title", "Generated Email", "Job URL", "Recipient Email", "Send Status"])
-                
-                for idx, job in enumerate(jobs):
-                    comp = job.get("Company Name")
-                    title = job.get("Job Title")
-                    skills = job.get("Required Skills", "")
-                    url = job.get("Job Posting Link / URL", "")
-                    
-                    email_content = generate_cold_email(api_key, comp, title, skills)
-                    
-                    if email_content:
-                        recipient = find_email_in_text(skills)
-                        writer.writerow([comp, title, email_content, url, recipient or "Not Found", "Not Sent"])
-                        out_f.flush()
-                        success_count += 1
-                        
-                        emails.append({
-                            "Company": comp,
-                            "Job Title": title,
-                            "Generated Email": email_content,
-                            "Job URL": url,
-                            "Recipient Email": recipient or "Not Found",
-                            "Send Status": "Not Sent"
-                        })
-                        
-                        # SMTP sending if recipient email found and credentials configured
-                        if recipient:
-                            daily_sent = get_daily_sent_count()
-                            if daily_sent >= MAX_DAILY_EMAILS:
-                                log_scheduler(f"[LIMIT REACHED] Daily sending limit of {MAX_DAILY_EMAILS} reached. Saving drafts only.")
-                            else:
-                                subject, body = extract_subject_and_body(email_content)
-                                sent_ok = send_email_via_smtp(subject, body, recipient)
-                                if sent_ok:
-                                    new_count = increment_daily_sent_count()
-                                    log_scheduler(f"Daily email count updated to: {new_count}/{MAX_DAILY_EMAILS}")
-                                    
-                                    # Wait 30-60 seconds for deliverability before continuing
-                                    if idx < len(jobs) - 1 and new_count < MAX_DAILY_EMAILS:
-                                        delay = random.randint(30, 60)
-                                        log_scheduler(f"Waiting {delay}s before next SMTP send...")
-                                        time.sleep(delay)
-                        
-                    # Delay to prevent API rate limits
-                    time.sleep(2.5)
-                    
-            with open(EMAILS_JSON, "w", encoding="utf-8") as json_f:
-                json.dump(emails, json_f, indent=4, ensure_ascii=False)
-                    
-        except Exception as e:
-            error = f"Error generating emails: {str(e)}"
-            logger.exception("Email generation failed")
-    else:
-        if os.path.exists(EMAILS_JSON):
+        with email_lock:
+            if email_running:
+                log_scheduler("[EMAIL GEN] Already running, skipping duplicate trigger.")
+                return redirect(url_for("home"))
+            email_running = True
+
+        def email_worker():
+            global email_running
             try:
-                with open(EMAILS_JSON, mode="r", encoding="utf-8") as f:
-                    emails = json.load(f)
+                # Load jobs from JSON (more reliable than CSV)
+                jobs = []
+                if os.path.exists(JOBS_JSON):
+                    try:
+                        with open(JOBS_JSON, "r", encoding="utf-8") as f:
+                            jobs = json.load(f)
+                    except Exception:
+                        pass
+                if not jobs and os.path.exists(JOBS_CSV):
+                    try:
+                        with open(JOBS_CSV, mode="r", encoding="utf-8-sig") as f:
+                            jobs = list(csv.DictReader(f))
+                    except Exception:
+                        pass
+
+                if not jobs:
+                    log_scheduler("[EMAIL GEN] No jobs found. Please run scraper first.")
+                    return
+
+                # Load already-generated job URLs to avoid duplicates
+                already_generated_urls = set()
+                if os.path.exists(EMAILS_CSV):
+                    try:
+                        with open(EMAILS_CSV, mode="r", encoding="utf-8-sig") as ef:
+                            for erow in csv.DictReader(ef):
+                                url = (erow.get("Job URL") or "").split("?")[0].rstrip("/")
+                                if url:
+                                    already_generated_urls.add(url)
+                    except Exception:
+                        pass
+
+                pending = [j for j in jobs if (j.get("Job Posting Link / URL") or "").split("?")[0].rstrip("/") not in already_generated_urls]
+                log_scheduler(f"[EMAIL GEN] {len(jobs)} total jobs | {len(already_generated_urls)} already done | {len(pending)} to generate now")
+
+                if not pending:
+                    log_scheduler("[EMAIL GEN] Saare jobs ke liye emails already generate ho chuki hain.")
+                    return
+
+                # Load existing emails data
+                all_emails_data = []
+                if os.path.exists(EMAILS_JSON):
+                    try:
+                        with open(EMAILS_JSON, "r", encoding="utf-8") as f:
+                            all_emails_data = json.load(f)
+                    except Exception:
+                        all_emails_data = []
+
+                file_mode = "a" if already_generated_urls else "w"
+                success_count = 0
+
+                with open(EMAILS_CSV, file_mode, newline="", encoding="utf-8-sig") as out_f:
+                    writer = csv.writer(out_f)
+                    if file_mode == "w":
+                        writer.writerow(["Company", "Job Title", "Generated Email", "Job URL", "Recipient Email", "Send Status"])
+
+                    for idx, job in enumerate(pending):
+                        comp  = job.get("Company Name", "")
+                        title = job.get("Job Title", "")
+                        skills = job.get("Required Skills", "")
+                        desc  = job.get("Job Description", skills)  # use full description if available
+                        url   = job.get("Job Posting Link / URL", "")
+
+                        log_scheduler(f"[EMAIL GEN] [{idx+1}/{len(pending)}] Generating for '{title}' @ {comp}...")
+                        email_content = generate_cold_email(api_key, comp, title, desc or skills)
+
+                        if email_content:
+                            recipient = find_email_in_text(skills)
+                            writer.writerow([comp, title, email_content, url, recipient or "Not Found", "Not Sent"])
+                            out_f.flush()
+                            success_count += 1
+                            all_emails_data.append({
+                                "Company": comp,
+                                "Job Title": title,
+                                "Generated Email": email_content,
+                                "Job URL": url,
+                                "Recipient Email": recipient or "Not Found",
+                                "Send Status": "Not Sent"
+                            })
+                            log_scheduler(f"[EMAIL GEN] [{idx+1}/{len(pending)}] ✔ Email ready for {comp}")
+                        else:
+                            log_scheduler(f"[EMAIL GEN] [{idx+1}/{len(pending)}] ✗ Failed for {comp}")
+
+                        time.sleep(1.0)  # rate limit
+
+                with open(EMAILS_JSON, "w", encoding="utf-8") as json_f:
+                    json.dump(all_emails_data, json_f, indent=4, ensure_ascii=False)
+
+                log_scheduler(f"[EMAIL GEN] Complete! {success_count}/{len(pending)} emails generated. Total saved: {len(all_emails_data)}")
+
             except Exception as e:
-                error = f"Failed to load existing emails JSON: {e}"
-        elif os.path.exists(EMAILS_CSV):
-            try:
-                with open(EMAILS_CSV, mode="r", encoding="utf-8-sig") as f:
-                    reader = csv.DictReader(f)
-                    emails = list(reader)
-            except Exception as e:
-                error = f"Failed to load existing emails CSV: {e}"
-                
-    return render_template("index.html", emails=emails, email_error=error, emails_count=len(emails))
+                log_scheduler(f"[EMAIL GEN ERROR] {e}")
+                logger.exception("Email generation worker failed")
+            finally:
+                with email_lock:
+                    email_running = False
+
+        threading.Thread(target=email_worker, daemon=True).start()
+        return redirect(url_for("home"))
+
+    # GET — just load existing emails
+    emails = []
+    error = None
+    if os.path.exists(EMAILS_JSON):
+        try:
+            with open(EMAILS_JSON, mode="r", encoding="utf-8") as f:
+                emails = json.load(f)
+        except Exception as e:
+            error = f"Failed to load emails: {e}"
+    elif os.path.exists(EMAILS_CSV):
+        try:
+            with open(EMAILS_CSV, mode="r", encoding="utf-8-sig") as f:
+                emails = list(csv.DictReader(f))
+        except Exception as e:
+            error = f"Failed to load emails CSV: {e}"
+
+    return render_template("index.html", emails=emails, email_error=error, emails_count=len(emails), apply_running=apply_running, email_running=email_running)
 
 def update_email_send_status(job_url, email_address, status):
     normalized_url = job_url.split("?")[0].rstrip("/")
@@ -1161,7 +1372,7 @@ def send_email_route():
         
     return redirect(url_for("home"))
 
-from apply_helper import auto_apply_to_job, update_job_status_in_files
+from apply_helper import auto_apply_to_job, auto_apply_batch, update_job_status_in_files
 
 @app.route("/apply", methods=["POST"])
 def apply_job_route():
@@ -1191,6 +1402,76 @@ def apply_job_route():
             update_job_status_in_files(job_url, "Failed")
             
     return redirect(url_for("home"))
+
+@app.route("/auto-apply-all", methods=["POST"])
+def auto_apply_all_route():
+    global apply_running
+    with apply_thread_lock:
+        if apply_running:
+            log_scheduler("[AUTO-APPLY ALL] Already running. Skipping.")
+            return redirect(url_for("home"))
+        apply_running = True
+
+    def auto_apply_worker():
+        global apply_running
+        try:
+            # Load all jobs — prefer JSON (has more fields)
+            jobs_list = []
+            if os.path.exists(JOBS_JSON):
+                try:
+                    with open(JOBS_JSON, "r", encoding="utf-8") as f:
+                        jobs_list = json.load(f)
+                except Exception:
+                    pass
+            if not jobs_list and os.path.exists(JOBS_CSV):
+                with open(JOBS_CSV, "r", encoding="utf-8-sig") as f:
+                    jobs_list = list(csv.DictReader(f))
+
+            # Sirf "Not Applied" jobs filter karo
+            to_apply = [
+                j for j in jobs_list
+                if not j.get("Application Status", "").strip()
+                or j.get("Application Status", "").strip() in ["Not Applied", ""]
+            ]
+
+            log_scheduler(f"[AUTO-APPLY ALL] {len(to_apply)} jobs pending. Processing first 5 using single browser session...")
+
+            if not to_apply:
+                log_scheduler("[AUTO-APPLY ALL] No pending jobs to apply.")
+                return
+
+            # Mark all as "Applying..." before starting
+            for job in to_apply[:5]:
+                url = job.get("Job Posting Link / URL") or job.get("Job URL", "")
+                if url:
+                    update_job_status_in_files(url, "Applying...")
+
+            # Single browser session for all 5 jobs
+            results = auto_apply_batch(to_apply, max_jobs=5)
+
+            for job_url, status in results:
+                if job_url:
+                    update_job_status_in_files(job_url, status)
+                    log_scheduler(f"[AUTO-APPLY ALL] {job_url.split('/')[-1][:30]} → {status}")
+
+            applied = sum(1 for _, s in results if s == "Applied")
+            log_scheduler(f"[AUTO-APPLY ALL] Done. Applied: {applied}/{len(results)}")
+
+        except Exception as e:
+            log_scheduler(f"[AUTO-APPLY ALL] Worker error: {e}")
+            logger.exception("Auto apply all failed")
+        finally:
+            with apply_thread_lock:
+                apply_running = False
+
+    threading.Thread(target=auto_apply_worker, daemon=True).start()
+    return redirect(url_for("home"))
+
+
+@app.route("/apply-status")
+def apply_status():
+    global apply_running
+    return jsonify({"running": apply_running})
 
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=8000, debug=True)

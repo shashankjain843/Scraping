@@ -349,19 +349,49 @@ def extract_website(description):
             return url
     return "Not Mentioned"
 
+def is_linkedin_logged_in(page):
+    """Check karo ki LinkedIn pe actually logged in hain ya nahi — DOM elements se."""
+    try:
+        logged_in_selectors = [
+            "div.global-nav__me",          # Profile/me icon in nav
+            "img.global-nav__me-photo",    # Profile photo
+            "a[href*='/feed/']"             # Feed link in nav
+        ]
+        for sel in logged_in_selectors:
+            if page.locator(sel).first.count() > 0:
+                return True
+        if "login" in page.url or "authwall" in page.url or "signup" in page.url:
+            return False
+        return False
+    except Exception:
+        return False
+
 def login_to_linkedin(page, email, password):
     log_to_file("[INFO] Starting LinkedIn login process...")
-    
-    # Check if we are already logged in via storage_state
-    try:
-        page.goto("https://www.linkedin.com/feed/", timeout=20000)
-        page.wait_for_load_state("networkidle")
-        if "feed" in page.url or page.locator("a[data-global-header-item='linkedin-home']").first.count() > 0:
-            log_to_file("[SUCCESS] Already logged in to LinkedIn (session active). Skipping credentials entry.")
-            return
-    except Exception as e:
-        log_to_file(f"[INFO] Active session check failed or timed out: {e}. Proceeding with login...")
-        
+    session_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "linkedin_session.json")
+
+    # Pehle check karo: session file se already logged in hain?
+    if os.path.exists(session_path):
+        try:
+            page.goto("https://www.linkedin.com/feed/", timeout=25000)
+            page.wait_for_load_state("networkidle", timeout=15000)
+            if is_linkedin_logged_in(page):
+                log_to_file("[SUCCESS] Session valid hai. LinkedIn login skip kar rahe hain.")
+                return
+            else:
+                log_to_file("[INFO] Session expired ya invalid hai. Purana session delete karke fresh login karenge...")
+                try:
+                    os.remove(session_path)
+                except Exception:
+                    pass
+        except Exception as e:
+            log_to_file(f"[INFO] Session check fail hua: {e}. Fresh login karenge...")
+            try:
+                os.remove(session_path)
+            except Exception:
+                pass
+
+    # Fresh login karo
     try:
         def goto_login():
             page.goto("https://www.linkedin.com/login", timeout=60000)
@@ -392,19 +422,21 @@ def login_to_linkedin(page, email, password):
         retry_action(click_submit, "Submit LinkedIn login form", max_attempts=1)
         check_captcha(page)
         
-        session_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "linkedin_session.json")
-        if "feed" in page.url or "checkpoint" not in page.url:
-            log_to_file("[SUCCESS] Logged in to LinkedIn successfully.")
-            # Save storage state
+        # Login verify karo DOM se
+        page.wait_for_timeout(2000)
+        if is_linkedin_logged_in(page):
+            log_to_file("[SUCCESS] LinkedIn pe successfully login ho gaye!")
             page.context.storage_state(path=session_path)
-            log_to_file(f"[INFO] Saved new LinkedIn session state to {session_path}")
-        else:
-            log_to_file(f"[WARNING] Login might have requested security check or failed. Current URL: {page.url}")
+            log_to_file(f"[INFO] Naya session save kar diya: {session_path}")
+        elif "checkpoint" in page.url:
+            log_to_file(f"[WARNING] LinkedIn ne security check maanga. URL: {page.url}")
             check_captcha(page)
-            # Save storage state anyway in case it was a checkpoint they can bypass manually
+            page.context.storage_state(path=session_path)
+        else:
+            log_to_file(f"[WARNING] Login ke baad bhi logged-in elements nahi mile. URL: {page.url}")
             page.context.storage_state(path=session_path)
     except Exception as login_err:
-        log_to_file(f"[ERROR] Failed to login to LinkedIn: {login_err}")
+        log_to_file(f"[ERROR] LinkedIn login fail hua: {login_err}")
         check_captcha(page)
 
 def scrape_job_details_fallback(context, job_url):
@@ -782,6 +814,20 @@ def main():
                     page.wait_for_timeout(random.randint(4000, 6000))
                     
                     check_captcha(page)
+                    
+                    # Fallback check if 0 jobs found with 24h filter
+                    job_cards = page.locator("div.base-card, .job-search-card, li.jobs-search-results__list-item")
+                    if job_cards.count() == 0 and "f_TPR=r86400" in search_url:
+                        fallback_url = search_url.replace("&f_TPR=r86400", "")
+                        log_to_file(f"[INFO] 0 jobs found with 24h filter for {location}. Retrying with fallback URL: {fallback_url}")
+                        try:
+                            page.goto(fallback_url, timeout=60000)
+                            page.wait_for_load_state("networkidle")
+                            page.wait_for_timeout(random.randint(4000, 6000))
+                            check_captcha(page)
+                        except Exception as fe:
+                            log_to_file(f"[ERROR] Failed to load fallback search page for {location}: {fe}")
+                            
                     scrape_search_results(page, context, keyword, location, seen_urls)
                     
                 except Exception as combo_err:

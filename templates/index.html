@@ -127,9 +127,17 @@
         </form>
     </div>
 
-    <div style="margin-bottom: 30px; display: flex; gap: 15px; align-items: center;">
+    <div style="margin-bottom: 30px; display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
         <form action="{{ url_for('generate_emails_route') }}" method="POST" style="display: inline-block; margin: 0;">
             <button type="submit" class="btn btn-emails">✉️ Generate Cold Emails for Scraped Jobs</button>
+        </form>
+        
+        <form action="{{ url_for('auto_apply_all_route') }}" method="POST" style="display: inline-block; margin: 0;">
+            {% if apply_running %}
+                <button type="button" class="btn" disabled style="background-color: #a6a6a6; cursor: not-allowed; border: 1px solid #777;">⚡ Auto-Apply is running...</button>
+            {% else %}
+                <button type="submit" class="btn" style="background-color: #ffc107; color: #000; font-weight: bold; border: 1px solid #d39e00;">⚡ Auto-Apply to New Jobs (Limit: 5)</button>
+            {% endif %}
         </form>
     </div>
 
@@ -242,5 +250,53 @@
     <h2>Background Scheduler Logs</h2>
     <div class="logs-box">{% if scheduler_logs %}{{ scheduler_logs }}{% else %}No scheduler logs found yet.{% endif %}</div>
 
+    <!-- Polling Scripts for Background tasks -->
+    <script>
+        // Check scraper status
+        {% if scraper_running %}
+        (function() {
+            function checkScraperStatus() {
+                fetch("/scraper-status")
+                    .then(response => response.json())
+                    .then(data => {
+                        if (!data.running) {
+                            alert("✅ LinkedIn Scraping Completed Successfully! The page will now refresh to show all scraped positions.");
+                            window.location.reload();
+                        } else {
+                            setTimeout(checkScraperStatus, 4000);
+                        }
+                    })
+                    .catch(err => {
+                        console.error("Error polling scraper status:", err);
+                        setTimeout(checkScraperStatus, 4000);
+                    });
+            }
+            setTimeout(checkScraperStatus, 4000);
+        })();
+        {% endif %}
+
+        // Check auto-apply status
+        {% if apply_running %}
+        (function() {
+            function checkApplyStatus() {
+                fetch("/apply-status")
+                    .then(response => response.json())
+                    .then(data => {
+                        if (!data.running) {
+                            alert("✅ Auto-Apply Processing Completed! The page will now refresh to update the status column.");
+                            window.location.reload();
+                        } else {
+                            setTimeout(checkApplyStatus, 4000);
+                        }
+                    })
+                    .catch(err => {
+                        console.error("Error polling auto-apply status:", err);
+                        setTimeout(checkApplyStatus, 4000);
+                    });
+            }
+            setTimeout(checkApplyStatus, 4000);
+        })();
+        {% endif %}
+    </script>
 </body>
 </html>

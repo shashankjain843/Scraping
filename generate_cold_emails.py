@@ -25,7 +25,7 @@ if hasattr(sys.stdout, 'reconfigure'):
         pass
 
 # Configurations
-MODEL_NAME = "openai/gpt-4o-mini"
+MODEL_NAME = "openai/gpt-oss-20b:free"
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 TRACKER_FILE = "sent_emails_tracker.json"
 MAX_DAILY_EMAILS = 10  # Enforces a limit of 10 emails per day
