@@ -15,7 +15,16 @@ def get_absolute_path(filename):
 def log(msg):
     import datetime
     ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{ts}] [APPLY] {msg}", flush=True)
+    log_entry = f"[{ts}] [APPLY] {msg}\n"
+    print(log_entry.strip(), flush=True)
+    # Also write to files
+    for filename in ["scheduler_log.txt", "logs.txt"]:
+        try:
+            with open(filename, "a", encoding="utf-8") as f:
+                f.write(log_entry)
+        except:
+            pass
+
 
 def is_logged_in(page):
     """DOM elements se check karo ki logged in hain ya nahi."""
@@ -30,35 +39,67 @@ def is_logged_in(page):
         return False
 
 def ensure_login(page, context, session_path):
-    """Agar already logged in hain to skip, nahi to wait karo."""
+    """Agar already logged in hain to skip, nahi to auto-login try karo."""
     if is_logged_in(page):
         log("Already logged in. Session valid.")
         return True
 
-    log("Session expired or not found. Navigating to feed to verify...")
-    try:
-        page.goto("https://www.linkedin.com/feed/", timeout=30000)
-        page.wait_for_load_state("networkidle", timeout=15000)
-    except Exception:
-        pass
+    log("Session expired or not found. Checking if auto-login is possible...")
+    email = os.environ.get("LINKEDIN_EMAIL")
+    password = os.environ.get("LINKEDIN_PASSWORD")
 
-    if is_logged_in(page):
-        log("Session valid after reload.")
-        context.storage_state(path=session_path)
-        return True
+    if email and password:
+        log("[INFO] Attempting automatic LinkedIn login...")
+        try:
+            page.goto("https://www.linkedin.com/login", timeout=60000)
+            page.wait_for_load_state("networkidle")
+            
+            # Fill email
+            username_sel = "input#username"
+            page.wait_for_selector(username_sel, state="visible", timeout=10000)
+            page.locator(username_sel).fill(email)
+            
+            # Fill password
+            password_sel = "input#password"
+            page.wait_for_selector(password_sel, state="visible", timeout=10000)
+            page.locator(password_sel).fill(password)
+            
+            # Sign in click with navigation expect
+            submit_sel = "button[type='submit']"
+            page.wait_for_selector(submit_sel, state="visible", timeout=10000)
+            
+            try:
+                with page.expect_navigation(timeout=15000):
+                    page.locator(submit_sel).click()
+            except Exception:
+                # Expecting navigation might timeout if it prompts for 2FA/checkpoint
+                page.locator(submit_sel).click()
+                
+            page.wait_for_load_state("networkidle")
+            page.wait_for_timeout(2000)
+            
+            if is_logged_in(page):
+                log("[SUCCESS] LinkedIn automatic login successful!")
+                context.storage_state(path=session_path)
+                return True
+            else:
+                log("[WARNING] Automatic login did not immediately verify. Might need manual OTP/Captcha.")
+        except Exception as e:
+            log(f"[WARNING] Automatic login attempt failed: {e}. Falling back to manual check.")
 
-    # Login required — wait for user to login manually (2 minutes)
-    log("LOGIN REQUIRED: Please log in to LinkedIn in the browser window that opened.")
-    log("Waiting up to 2 minutes for you to complete login...")
+    # Fallback to manual login/verification if needed
+    log("LOGIN REQUIRED: Please log in or complete verification in the browser window.")
+    log("Waiting up to 2 minutes for you to complete it...")
     for _ in range(24):
         page.wait_for_timeout(5000)
         if is_logged_in(page):
-            log("Login detected! Saving session...")
+            log("[SUCCESS] Login detected! Saving session...")
             context.storage_state(path=session_path)
             return True
 
     log("Timeout: Login was not completed.")
     return False
+
 
 
 def apply_to_single_job(page, job_url, company_name, job_title):

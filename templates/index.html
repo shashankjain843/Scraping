@@ -217,7 +217,7 @@
                         <td>{{ email.get('Company') }}</td>
                         <td>{{ email.get('Job Title') or email.get('JobTitle') }}</td>
                         <td>
-                            <pre style="white-space: pre-wrap; font-family: inherit; font-size: 13px; max-height: 180px; overflow-y: auto; background: #fafafa; border: 1px solid #eee; padding: 10px; border-radius: 4px; margin: 0;">{{ email_text }}</pre>
+                            <pre style="white-space: pre-wrap; font-family: inherit; font-size: 13px; background: #fafafa; border: 1px solid #eee; padding: 10px; border-radius: 4px; margin: 0;">{{ email_text }}</pre>
                         </td>
                         <td>
                             <!-- HTML5 standard form link to allow inputs anywhere -->
@@ -226,7 +226,7 @@
                                 <input type="hidden" name="title" value="{{ email.get('Job Title') or email.get('JobTitle') }}">
                                 <input type="hidden" name="job_url" value="{{ email.get('Job URL') or email.get('JobUrl') }}">
                                 <input type="hidden" name="body" value="{{ email_text }}">
-                                <input type="hidden" name="subject" value="Application for {{ email.get('Job Title') or email.get('JobTitle') }} - {{ RESUME_DATA['Name'] if RESUME_DATA else 'Shashank Jain' }}">
+                                <input type="hidden" name="subject" value="Application for {{ email.get('Job Title') or email.get('JobTitle') }}">
                             </form>
                             
                             <input type="email" name="recipient_email" form="form-email-{{ loop.index }}" value="{% if email.get('Recipient Email') and email.get('Recipient Email') != 'Not Found' %}{{ email.get('Recipient Email') }}{% endif %}" placeholder="recruiter@company.com" required style="width: 100%; min-width: 180px; padding: 6px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px;">

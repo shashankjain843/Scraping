@@ -102,7 +102,7 @@ RESUME_DATA = {
 def log_scheduler(message: str):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_entry = f"[{timestamp}] {message}\n"
-    print(log_entry.strip())
+    print(log_entry.strip(), flush=True)
     try:
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(log_entry)
@@ -111,6 +111,60 @@ def log_scheduler(message: str):
             f.write(log_entry)
     except Exception as e:
         logger.error(f"Failed to log scheduler: {e}")
+
+def save_emails_atomically(emails_list):
+    """
+    Saves the list of emails to JSON and CSV atomically to prevent corruption.
+    """
+    # 1. Write JSON atomically
+    temp_json = EMAILS_JSON + ".tmp"
+    try:
+        with open(temp_json, "w", encoding="utf-8") as f:
+            json.dump(emails_list, f, indent=4, ensure_ascii=False)
+        if os.path.exists(EMAILS_JSON):
+            try:
+                os.remove(EMAILS_JSON)
+            except:
+                pass
+        os.rename(temp_json, EMAILS_JSON)
+    except Exception as e:
+        log_scheduler(f"[ERROR] Failed to save emails JSON atomically: {e}")
+        if os.path.exists(temp_json):
+            try:
+                os.remove(temp_json)
+            except:
+                pass
+
+    # 2. Write CSV atomically
+    temp_csv = EMAILS_CSV + ".tmp"
+    try:
+        with open(temp_csv, "w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Company", "Job Title", "Generated Email", "Job URL", "Recipient Email", "Send Status"])
+            for email in emails_list:
+                writer.writerow([
+                    email.get("Company", "") or "",
+                    email.get("Job Title", "") or "",
+                    email.get("Generated Email", "") or "",
+                    email.get("Job URL", "") or "",
+                    email.get("Recipient Email", "Not Found") or "Not Found",
+                    email.get("Send Status", "Not Sent") or "Not Sent"
+                ])
+        if os.path.exists(EMAILS_CSV):
+            try:
+                os.remove(EMAILS_CSV)
+            except:
+                pass
+        os.rename(temp_csv, EMAILS_CSV)
+    except Exception as e:
+        log_scheduler(f"[ERROR] Failed to save emails CSV atomically: {e}")
+        if os.path.exists(temp_csv):
+            try:
+                os.remove(temp_csv)
+            except:
+                pass
+
+
 
 # Helper to retry browser actions
 def retry_action(action_fn, action_name, max_attempts=3, initial_delay=2):
@@ -756,9 +810,9 @@ def generate_cold_email(api_key, company_name, job_title, job_description) -> Op
         "Always address the email to 'Dear Hiring Team,' or 'Dear [Company Name] Hiring Team,' instead of 'Dear Hiring Manager,' or 'Dear Recruiter,'. "
         "The response must start directly with 'Subject: [Subject Line]' followed by the email body. "
         "Do not write any introductory or concluding conversation text, just start with Subject:.\n"
-        "CRITICAL: Do NOT use any spam-trigger words or phrases such as 'Free', 'Guaranteed', "
-        "'Act now', 'Limited time', 'Click here', 'Risk-free', 'Special offer', 'Click below', or 'Hurry'. "
-        "Subject lines should be unique, professional, and personalized to the role and company."
+        "CRITICAL: Do NOT include the candidate's name (Shashank Jain) in the subject line. Keep it professional. "
+        "CRITICAL: Do NOT write any email signature or sign-off at the end (like 'Best regards', 'Sincerely', or your name). "
+        "Just end the email text with a concluding sentence. A signature will be appended automatically."
     )
 
     exp_details = f"Data Analyst Intern at {RESUME_DATA['Experience'][0]['Company']} ({RESUME_DATA['Experience'][0]['Details']})"
@@ -783,12 +837,15 @@ Job Listing details:
 - Job Description/Required Skills: {job_description}
 
 Write a personalized cold email from {RESUME_DATA['Name']} to the hiring team at {company_name} for the '{job_title}' position. Match relevant skills and projects from his resume. Make it short (5-6 lines), professional, and direct. Address the email with 'Dear Hiring Team,'. Start with the Subject line.
+Do NOT include candidate's name in the subject line. Do NOT write any sign-off or signature block.
 """
 
-    # Ordered list of free models - if one fails (429/404), the next is tried automatically
-    FREE_MODELS = [
-        "openai/gpt-oss-20b:free",
+    # Prioritize cheap paid models (that work with your key balance) and then free models
+    MODELS = [
+        "google/gemini-2.5-flash",
+        "deepseek/deepseek-chat",
         "meta-llama/llama-3.3-70b-instruct:free",
+        "openai/gpt-oss-20b:free",
         "meta-llama/llama-3.2-3b-instruct:free",
         "nousresearch/hermes-3-llama-3.1-405b:free",
         "google/gemma-4-31b-it:free",
@@ -800,33 +857,72 @@ Write a personalized cold email from {RESUME_DATA['Name']} to the hiring team at
         {"role": "user", "content": user_prompt}
     ]
 
-    for model_id in FREE_MODELS:
+    for model_id in MODELS:
         payload = {
             "model": model_id,
             "messages": messages,
-            "temperature": 0.7
+            "temperature": 0.7,
+            "max_tokens": 800  # Crucial to bypass OpenRouter 402/429 budget checks
         }
-        try:
-            response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=20)
-            if response.status_code in (404, 429):
-                logger.warning(f"Model '{model_id}' returned {response.status_code}. Trying next model...")
-                continue
-            response.raise_for_status()
-            data = response.json()
-            if "choices" in data and len(data["choices"]) > 0:
-                stats["emails_generated"] += 1
-                email_text = data["choices"][0]["message"]["content"].strip()
-                # Post-process to ensure "Dear Hiring Team" greeting
-                email_text = re.sub(r'Dear\s+Hiring\s+Manager\b', 'Dear Hiring Team', email_text, flags=re.IGNORECASE)
-                email_text = re.sub(r'Dear\s+Recruiter\b', 'Dear Hiring Team', email_text, flags=re.IGNORECASE)
-                log_scheduler(f"[INFO] Email generated using model: {model_id}")
-                return email_text
-        except Exception as e:
-            logger.warning(f"Model '{model_id}' failed: {e}. Trying next model...")
-            continue
+        
+        attempts = 0
+        max_attempts = 3
+        delay = 4
+        
+        while attempts < max_attempts:
+            try:
+                response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=25)
+                
+                # Check for 402 budget exhaustion and immediately try next model
+                if response.status_code == 402:
+                    log_scheduler(f"[WARNING] OpenRouter 402 (Insufficient Credits / Daily Free Limit reached) on '{model_id}'. Trying next model...")
+                    break
+                    
+                # Check for 429 rate limits and retry with backoff
+                if response.status_code == 429:
+                    attempts += 1
+                    log_scheduler(f"[INFO] OpenRouter rate limit reached on '{model_id}'. Retrying in {delay}s...")
+                    time.sleep(delay)
+                    delay *= 2
+                    continue
+                    
+                if response.status_code == 404:
+                    logger.warning(f"Model '{model_id}' returned 404. Trying next model...")
+                    break
+                    
+                response.raise_for_status()
+                data = response.json()
+                if "choices" in data and len(data["choices"]) > 0:
+                    stats["emails_generated"] += 1
+                    email_text = data["choices"][0]["message"]["content"].strip()
+                    # Post-process to ensure "Dear Hiring Team" greeting
+                    email_text = re.sub(r'Dear\s+Hiring\s+Manager\b', 'Dear Hiring Team', email_text, flags=re.IGNORECASE)
+                    email_text = re.sub(r'Dear\s+Recruiter\b', 'Dear Hiring Team', email_text, flags=re.IGNORECASE)
+                    
+                    # Ensure programmatic signature is appended at the very end
+                    signature = (
+                        "\n\nBest regards,\n"
+                        "Shashank Jain\n"
+                        "+91-7878927128\n"
+                        "linkedin.com/in/shashankjain\n"
+                        "github.com/shashankjain843"
+                    )
+                    email_text += signature
+                    
+                    log_scheduler(f"[INFO] Email generated using model: {model_id}")
+                    return email_text
+            except Exception as e:
+                attempts += 1
+                if attempts >= max_attempts:
+                    logger.warning(f"Model '{model_id}' failed: {e}. Trying next model...")
+                    break
+                log_scheduler(f"[INFO] OpenRouter busy. Retrying in {delay}s...")
+                time.sleep(delay)
+                delay *= 2
 
-    logger.error("OpenRouter API failed: All free models exhausted or rate-limited.")
+    logger.error("OpenRouter API failed: All models exhausted or rate-limited.")
     return None
+
 
 # Scheduled worker pipeline
 def run_scheduled_pipeline():
@@ -860,34 +956,41 @@ def run_scheduled_pipeline():
                 
             log_scheduler(f"Running scheduled OpenRouter email generator for {len(jobs)} jobs...")
             success_count = 0
+            emails_list = []
             
-            with open(EMAILS_CSV, "w", newline="", encoding="utf-8-sig") as out_f:
-                writer = csv.writer(out_f)
-                writer.writerow(["Company", "Job Title", "Generated Email", "Job URL", "Recipient Email"])
+            for idx, job in enumerate(jobs):
+                email_content = generate_cold_email(
+                    api_key=api_key,
+                    company_name=job["Company Name"],
+                    job_title=job["Job Title"],
+                    job_description=job["Required Skills"]
+                )
                 
-                for idx, job in enumerate(jobs):
-                    email_content = generate_cold_email(
-                        api_key=api_key,
-                        company_name=job["Company Name"],
-                        job_title=job["Job Title"],
-                        job_description=job["Required Skills"]
-                    )
+                if email_content:
+                    recipient = find_email_in_text(job["Required Skills"])
+                    email_entry = {
+                        "Company": job["Company Name"],
+                        "Job Title": job["Job Title"],
+                        "Generated Email": email_content,
+                        "Job URL": job["Job Posting Link / URL"],
+                        "Recipient Email": recipient or "Not Found",
+                        "Send Status": "Not Sent"
+                    }
                     
-                    if email_content:
-                        recipient = find_email_in_text(job["Required Skills"])
-                        writer.writerow([job["Company Name"], job["Job Title"], email_content, job["Job Posting Link / URL"], recipient or "Not Found"])
-                        out_f.flush()
-                        success_count += 1
-                        
-                        if recipient:
-                            daily_sent = get_daily_sent_count()
-                            if daily_sent >= MAX_DAILY_EMAILS:
-                                log_scheduler(f"[LIMIT REACHED] Daily sending limit of {MAX_DAILY_EMAILS} reached. Skipping further sends.")
-                                break
-                            
+                    emails_list.append(email_entry)
+                    save_emails_atomically(emails_list)
+                    success_count += 1
+                    
+                    if recipient:
+                        daily_sent = get_daily_sent_count()
+                        if daily_sent >= MAX_DAILY_EMAILS:
+                            log_scheduler(f"[LIMIT REACHED] Daily sending limit of {MAX_DAILY_EMAILS} reached. Skipping further sends.")
+                        else:
                             subject, body = extract_subject_and_body(email_content)
                             sent_ok = send_email_via_smtp(subject, body, recipient)
                             if sent_ok:
+                                email_entry["Send Status"] = "Sent Successfully"
+                                save_emails_atomically(emails_list)
                                 new_count = increment_daily_sent_count()
                                 log_scheduler(f"Daily email count updated to: {new_count}/{MAX_DAILY_EMAILS}")
                                 
@@ -895,14 +998,14 @@ def run_scheduled_pipeline():
                                     delay = random.randint(30, 60)
                                     log_scheduler(f"Waiting {delay}s between SMTP sends...")
                                     time.sleep(delay)
-                        
-                    else:
-                        log_scheduler(f"Skipped email generation for {job['Company Name']}")
-                        
-                    # Delay to prevent API rate limits
-                    time.sleep(2.5)
                     
-            log_scheduler(f"Successfully generated {success_count} emails and updated {EMAILS_CSV}.")
+                else:
+                    log_scheduler(f"Skipped email generation for {job['Company Name']}")
+                    
+                # Delay to prevent API rate limits
+                time.sleep(2.5)
+                
+            log_scheduler(f"Successfully generated {success_count} emails and updated database.")
         else:
             log_scheduler("No jobs scraped. Email generation skipped.")
             
@@ -932,7 +1035,7 @@ def home():
             pass
     elif os.path.exists(JOBS_CSV):
         try:
-            with open(JOBS_CSV, "r", encoding="utf-8-sig") as f:
+            with open(JOBS_CSV, "r", newline="", encoding="utf-8-sig") as f:
                 reader = csv.DictReader(f)
                 jobs = list(reader)
                 jobs_count = len(jobs)
@@ -950,7 +1053,7 @@ def home():
             pass
     elif os.path.exists(EMAILS_CSV):
         try:
-            with open(EMAILS_CSV, "r", encoding="utf-8-sig") as f:
+            with open(EMAILS_CSV, "r", newline="", encoding="utf-8-sig") as f:
                 reader = csv.DictReader(f)
                 emails = list(reader)
                 emails_count = len(emails)
@@ -1064,29 +1167,18 @@ def scrape():
                         row = {h: j.get(h, "") for h in headers}
                         writer.writerow(row)
                 log_scheduler(f"[SUCCESS] Background scraper complete. Found {len(new_jobs)} new jobs. Total unique jobs in database: {len(unique_jobs)}")
+                
+                with scraper_lock:
+                    scraper_running = False
+
 
                 # --- AUTO: Scraping ke baad seedha cold email generate karo ---
                 api_key = os.environ.get("OPENROUTER_API_KEY")
                 if api_key and new_jobs:
                     log_scheduler(f"[AUTO EMAIL] Scraping complete. {len(new_jobs)} naye jobs ke liye cold emails generate karna shuru...")
                     try:
-                        # Already generated emails ke URLs load karo (duplicates skip)
-                        already_generated_urls = set()
-                        if os.path.exists(EMAILS_CSV):
-                            try:
-                                with open(EMAILS_CSV, mode="r", encoding="utf-8-sig") as ef:
-                                    for erow in csv.DictReader(ef):
-                                        url = erow.get("Job URL", "").split("?")[0].rstrip("/")
-                                        if url:
-                                            already_generated_urls.add(url)
-                            except Exception:
-                                pass
-
-                        file_mode = "a" if already_generated_urls else "w"
-                        email_success = 0
-                        all_emails_data = []
-
                         # Load existing emails JSON
+                        all_emails_data = []
                         if os.path.exists(EMAILS_JSON):
                             try:
                                 with open(EMAILS_JSON, "r", encoding="utf-8") as f:
@@ -1094,44 +1186,56 @@ def scrape():
                             except Exception:
                                 all_emails_data = []
 
-                        with open(EMAILS_CSV, file_mode, newline="", encoding="utf-8-sig") as out_f:
-                            writer = csv.writer(out_f)
-                            if file_mode == "w":
-                                writer.writerow(["Company", "Job Title", "Generated Email", "Job URL", "Recipient Email", "Send Status"])
+                        # If JSON is empty but CSV exists, try reading CSV
+                        if not all_emails_data and os.path.exists(EMAILS_CSV):
+                            try:
+                                with open(EMAILS_CSV, mode="r", newline="", encoding="utf-8-sig") as ef:
+                                    all_emails_data = list(csv.DictReader(ef))
+                            except Exception:
+                                pass
 
-                            for job in new_jobs:
-                                job_url_key = (job.get("Job Posting Link / URL") or "").split("?")[0].rstrip("/")
-                                if job_url_key and job_url_key in already_generated_urls:
-                                    continue
+                        already_generated_urls = set()
+                        for e in all_emails_data:
+                            url = (e.get("Job URL") or e.get("Job Posting Link / URL") or "").split("?")[0].rstrip("/")
+                            if url:
+                                already_generated_urls.add(url)
 
-                                email_content = generate_cold_email(
-                                    api_key=api_key,
-                                    company_name=job.get("Company Name", ""),
-                                    job_title=job.get("Job Title", ""),
-                                    job_description=job.get("Required Skills", "")
-                                )
+                        email_success = 0
+                        for idx, job in enumerate(new_jobs):
+                            job_url_key = (job.get("Job Posting Link / URL") or "").split("?")[0].rstrip("/")
+                            if job_url_key and job_url_key in already_generated_urls:
+                                continue
 
-                                if email_content:
-                                    recipient = find_email_in_text(job.get("Required Skills", ""))
-                                    writer.writerow([job.get("Company Name"), job.get("Job Title"), email_content, job.get("Job Posting Link / URL", ""), recipient or "Not Found", "Not Sent"])
-                                    out_f.flush()
-                                    email_success += 1
-                                    all_emails_data.append({
-                                        "Company": job.get("Company Name"),
-                                        "Job Title": job.get("Job Title"),
-                                        "Generated Email": email_content,
-                                        "Job URL": job.get("Job Posting Link / URL", ""),
-                                        "Recipient Email": recipient or "Not Found",
-                                        "Send Status": "Not Sent"
-                                    })
-                                    already_generated_urls.add(job_url_key)
+                            log_scheduler(f"[AUTO EMAIL] [{idx+1}/{len(new_jobs)}] Generating for '{job.get('Job Title')}' @ {job.get('Company Name')}...")
+                            email_content = generate_cold_email(
+                                api_key=api_key,
+                                company_name=job.get("Company Name", ""),
+                                job_title=job.get("Job Title", ""),
+                                job_description=job.get("Required Skills", "")
+                            )
 
-                                time.sleep(1.0)  # API rate limit avoid karo
+                            if email_content:
+                                recipient = find_email_in_text(job.get("Required Skills", ""))
+                                all_emails_data.append({
+                                    "Company": job.get("Company Name"),
+                                    "Job Title": job.get("Job Title"),
+                                    "Generated Email": email_content,
+                                    "Job URL": job.get("Job Posting Link / URL", ""),
+                                    "Recipient Email": recipient or "Not Found",
+                                    "Send Status": "Not Sent"
+                                })
+                                # Atomic save at each step to prevent losing progress
+                                save_emails_atomically(all_emails_data)
+                                already_generated_urls.add(job_url_key)
+                                email_success += 1
+                                log_scheduler(f"[AUTO EMAIL] [{idx+1}/{len(new_jobs)}] ✔ Email ready")
+                            else:
+                                log_scheduler(f"[AUTO EMAIL] [{idx+1}/{len(new_jobs)}] ✗ Failed")
 
-                        with open(EMAILS_JSON, "w", encoding="utf-8") as json_f:
-                            json.dump(all_emails_data, json_f, indent=4, ensure_ascii=False)
+                            time.sleep(3.0)  # API rate limit avoid karo
 
-                        log_scheduler(f"[AUTO EMAIL] {email_success} cold emails generate ho gaye aur save ho gaye.")
+
+                        log_scheduler(f"[AUTO EMAIL] {email_success} naye cold emails generate ho gaye aur save ho gaye.")
                     except Exception as email_err:
                         log_scheduler(f"[AUTO EMAIL ERROR] Email generation fail hua: {email_err}")
                 elif not api_key:
@@ -1187,32 +1291,13 @@ def generate_emails_route():
                         pass
                 if not jobs and os.path.exists(JOBS_CSV):
                     try:
-                        with open(JOBS_CSV, mode="r", encoding="utf-8-sig") as f:
+                        with open(JOBS_CSV, mode="r", newline="", encoding="utf-8-sig") as f:
                             jobs = list(csv.DictReader(f))
                     except Exception:
                         pass
 
                 if not jobs:
                     log_scheduler("[EMAIL GEN] No jobs found. Please run scraper first.")
-                    return
-
-                # Load already-generated job URLs to avoid duplicates
-                already_generated_urls = set()
-                if os.path.exists(EMAILS_CSV):
-                    try:
-                        with open(EMAILS_CSV, mode="r", encoding="utf-8-sig") as ef:
-                            for erow in csv.DictReader(ef):
-                                url = (erow.get("Job URL") or "").split("?")[0].rstrip("/")
-                                if url:
-                                    already_generated_urls.add(url)
-                    except Exception:
-                        pass
-
-                pending = [j for j in jobs if (j.get("Job Posting Link / URL") or "").split("?")[0].rstrip("/") not in already_generated_urls]
-                log_scheduler(f"[EMAIL GEN] {len(jobs)} total jobs | {len(already_generated_urls)} already done | {len(pending)} to generate now")
-
-                if not pending:
-                    log_scheduler("[EMAIL GEN] Saare jobs ke liye emails already generate ho chuki hain.")
                     return
 
                 # Load existing emails data
@@ -1224,45 +1309,58 @@ def generate_emails_route():
                     except Exception:
                         all_emails_data = []
 
-                file_mode = "a" if already_generated_urls else "w"
+                if not all_emails_data and os.path.exists(EMAILS_CSV):
+                    try:
+                        with open(EMAILS_CSV, mode="r", newline="", encoding="utf-8-sig") as ef:
+                            all_emails_data = list(csv.DictReader(ef))
+                    except Exception:
+                        pass
+
+                # Load already-generated job URLs to avoid duplicates
+                already_generated_urls = set()
+                for e in all_emails_data:
+                    url = (e.get("Job URL") or "").split("?")[0].rstrip("/")
+                    if url:
+                        already_generated_urls.add(url)
+
+                pending = [j for j in jobs if (j.get("Job Posting Link / URL") or "").split("?")[0].rstrip("/") not in already_generated_urls]
+                log_scheduler(f"[EMAIL GEN] {len(jobs)} total jobs | {len(already_generated_urls)} already done | {len(pending)} to generate now")
+
+                if not pending:
+                    log_scheduler("[EMAIL GEN] Saare jobs ke liye emails already generate ho chuki hain.")
+                    return
+
                 success_count = 0
+                for idx, job in enumerate(pending):
+                    comp  = job.get("Company Name", "")
+                    title = job.get("Job Title", "")
+                    skills = job.get("Required Skills", "")
+                    desc  = job.get("Job Description", skills)  # use full description if available
+                    url   = job.get("Job Posting Link / URL", "")
 
-                with open(EMAILS_CSV, file_mode, newline="", encoding="utf-8-sig") as out_f:
-                    writer = csv.writer(out_f)
-                    if file_mode == "w":
-                        writer.writerow(["Company", "Job Title", "Generated Email", "Job URL", "Recipient Email", "Send Status"])
+                    log_scheduler(f"[EMAIL GEN] [{idx+1}/{len(pending)}] Generating for '{title}' @ {comp}...")
+                    email_content = generate_cold_email(api_key, comp, title, desc or skills)
 
-                    for idx, job in enumerate(pending):
-                        comp  = job.get("Company Name", "")
-                        title = job.get("Job Title", "")
-                        skills = job.get("Required Skills", "")
-                        desc  = job.get("Job Description", skills)  # use full description if available
-                        url   = job.get("Job Posting Link / URL", "")
+                    if email_content:
+                        recipient = find_email_in_text(skills)
+                        all_emails_data.append({
+                            "Company": comp,
+                            "Job Title": title,
+                            "Generated Email": email_content,
+                            "Job URL": url,
+                            "Recipient Email": recipient or "Not Found",
+                            "Send Status": "Not Sent"
+                        })
+                        # Save atomically at each step to prevent losing progress
+                        save_emails_atomically(all_emails_data)
+                        already_generated_urls.add(url.split("?")[0].rstrip("/"))
+                        success_count += 1
+                        log_scheduler(f"[EMAIL GEN] [{idx+1}/{len(pending)}] ✔ Email ready for {comp}")
+                    else:
+                        log_scheduler(f"[EMAIL GEN] [{idx+1}/{len(pending)}] ✗ Failed for {comp}")
 
-                        log_scheduler(f"[EMAIL GEN] [{idx+1}/{len(pending)}] Generating for '{title}' @ {comp}...")
-                        email_content = generate_cold_email(api_key, comp, title, desc or skills)
+                    time.sleep(3.0)  # rate limit
 
-                        if email_content:
-                            recipient = find_email_in_text(skills)
-                            writer.writerow([comp, title, email_content, url, recipient or "Not Found", "Not Sent"])
-                            out_f.flush()
-                            success_count += 1
-                            all_emails_data.append({
-                                "Company": comp,
-                                "Job Title": title,
-                                "Generated Email": email_content,
-                                "Job URL": url,
-                                "Recipient Email": recipient or "Not Found",
-                                "Send Status": "Not Sent"
-                            })
-                            log_scheduler(f"[EMAIL GEN] [{idx+1}/{len(pending)}] ✔ Email ready for {comp}")
-                        else:
-                            log_scheduler(f"[EMAIL GEN] [{idx+1}/{len(pending)}] ✗ Failed for {comp}")
-
-                        time.sleep(1.0)  # rate limit
-
-                with open(EMAILS_JSON, "w", encoding="utf-8") as json_f:
-                    json.dump(all_emails_data, json_f, indent=4, ensure_ascii=False)
 
                 log_scheduler(f"[EMAIL GEN] Complete! {success_count}/{len(pending)} emails generated. Total saved: {len(all_emails_data)}")
 
@@ -1276,6 +1374,7 @@ def generate_emails_route():
         threading.Thread(target=email_worker, daemon=True).start()
         return redirect(url_for("home"))
 
+
     # GET — just load existing emails
     emails = []
     error = None
@@ -1287,7 +1386,7 @@ def generate_emails_route():
             error = f"Failed to load emails: {e}"
     elif os.path.exists(EMAILS_CSV):
         try:
-            with open(EMAILS_CSV, mode="r", encoding="utf-8-sig") as f:
+            with open(EMAILS_CSV, mode="r", newline="", encoding="utf-8-sig") as f:
                 emails = list(csv.DictReader(f))
         except Exception as e:
             error = f"Failed to load emails CSV: {e}"
@@ -1297,55 +1396,33 @@ def generate_emails_route():
 def update_email_send_status(job_url, email_address, status):
     normalized_url = job_url.split("?")[0].rstrip("/")
     
-    # Update JSON
+    # Load existing emails
+    emails = []
     if os.path.exists(EMAILS_JSON):
         try:
             with open(EMAILS_JSON, "r", encoding="utf-8") as f:
                 emails = json.load(f)
-            updated = False
-            for email in emails:
-                url = email.get("Job URL", "") or email.get("url", "") or email.get("Job Posting Link / URL", "")
-                if url and url.split("?")[0].rstrip("/") == normalized_url:
-                    email["Recipient Email"] = email_address
-                    email["Send Status"] = status
-                    updated = True
-            if updated:
-                with open(EMAILS_JSON, "w", encoding="utf-8") as f:
-                    json.dump(emails, f, indent=4, ensure_ascii=False)
-        except Exception as e:
-            logger.error(f"Failed to update email status in JSON: {e}")
-
-    # Update CSV
-    if os.path.exists(EMAILS_CSV):
+        except Exception:
+            pass
+            
+    if not emails and os.path.exists(EMAILS_CSV):
         try:
-            rows = []
-            headers = []
-            with open(EMAILS_CSV, "r", encoding="utf-8-sig") as f:
-                reader = csv.DictReader(f)
-                headers = list(reader.fieldnames or [])
-                if "Recipient Email" not in headers:
-                    headers.append("Recipient Email")
-                if "Send Status" not in headers:
-                    headers.append("Send Status")
-                rows = list(reader)
-                
-            updated = False
-            for row in rows:
-                url = row.get("Job URL", "") or row.get("Job Posting Link / URL", "")
-                if url and url.split("?")[0].rstrip("/") == normalized_url:
-                    row["Recipient Email"] = email_address
-                    row["Send Status"] = status
-                    updated = True
-                    
-            if updated:
-                with open(EMAILS_CSV, "w", newline="", encoding="utf-8-sig") as f:
-                    writer = csv.DictWriter(f, fieldnames=headers)
-                    writer.writeheader()
-                    for r in rows:
-                        row_to_write = {h: r.get(h, "") for h in headers}
-                        writer.writerow(row_to_write)
-        except Exception as e:
-            logger.error(f"Failed to update email status in CSV: {e}")
+            with open(EMAILS_CSV, "r", newline="", encoding="utf-8-sig") as f:
+                emails = list(csv.DictReader(f))
+        except Exception:
+            pass
+
+    updated = False
+    for email in emails:
+        url = (email.get("Job URL") or email.get("Job Posting Link / URL") or "").split("?")[0].rstrip("/")
+        if url and url == normalized_url:
+            email["Recipient Email"] = email_address
+            email["Send Status"] = status
+            updated = True
+            
+    if updated:
+        save_emails_atomically(emails)
+
 
 @app.route("/send-email", methods=["POST"])
 def send_email_route():
