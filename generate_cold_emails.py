@@ -297,10 +297,10 @@ Resume Text:
         return None
 
 def get_api_key():
-    api_key = os.environ.get("OPENROUTER_API_KEY")
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
-        log_to_file("[ERROR] OPENROUTER_API_KEY environment variable is not set in environment or .env!")
-        api_key = input("Please paste your OpenRouter API Key: ").strip()
+        log_to_file("[ERROR] GEMINI_API_KEY or OPENROUTER_API_KEY environment variable is not set in environment or .env!")
+        api_key = input("Please paste your API Key: ").strip()
         if not api_key:
             sys.exit(1)
     return api_key
@@ -348,9 +348,14 @@ Job Listing details:
 Write a personalized cold email from {RESUME_DATA['Name']} to the hiring team at {company_name} for the '{job_title}' position. Match relevant skills and projects from his resume. Make it short (5-6 lines), professional, and direct. Address the email with 'Dear Hiring Team,'. Start with the Subject line.
 """
 
-    api_url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-    model_name = "gemini-2.5-flash"
-    log_to_file(f"[API ROUTE] Routing directly to Google Gemini API...")
+    if api_key.startswith("sk-or-"):
+        api_url = "https://openrouter.ai/api/v1/chat/completions"
+        model_name = "google/gemini-2.5-flash"
+        log_to_file(f"[API ROUTE] Routing via OpenRouter API...")
+    else:
+        api_url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        model_name = "gemini-2.0-flash"
+        log_to_file(f"[API ROUTE] Routing directly to Google Gemini API...")
 
     payload = {
         "model": model_name,
@@ -373,11 +378,12 @@ Write a personalized cold email from {RESUME_DATA['Name']} to the hiring team at
             email_text = re.sub(r'Dear\s+Recruiter\b', 'Dear Hiring Team', email_text, flags=re.IGNORECASE)
             return email_text
         else:
-            log_to_file(f"[ERROR] Invalid API response format from OpenRouter: {data}")
+            log_to_file(f"[ERROR] Invalid API response format: {data}")
             return None
     except Exception as e:
         log_to_file(f"[ERROR] AI cold email generation API call failed: {e}")
         return None
+
 
 def run_mode_a(api_key):
     log_to_file("\n--- MODE A: Standalone (Manual Cold Email Generator) ---")

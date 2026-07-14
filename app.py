@@ -841,16 +841,30 @@ Write a personalized cold email from {RESUME_DATA['Name']} to the hiring team at
 Do NOT include candidate's name in the subject line. Do NOT write any sign-off or signature block.
 """
 
-    api_url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-    models = [
-        "gemini-3.5-flash",
-        "gemini-flash-latest",
-        "gemini-2.0-flash",
-        "gemini-2.0-flash-lite",
-        "gemini-2.5-pro",
-        "gemini-pro-latest"
-    ]
-    log_scheduler(f"[API ROUTE] Routing directly to Google Gemini API...")
+    if api_key.startswith("sk-or-"):
+        api_url = "https://openrouter.ai/api/v1/chat/completions"
+        models = [
+            "google/gemini-2.5-flash",
+            "deepseek/deepseek-chat",
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "openai/gpt-oss-20b:free",
+            "meta-llama/llama-3.2-3b-instruct:free",
+            "nousresearch/hermes-3-llama-3.1-405b:free",
+            "google/gemma-4-31b-it:free",
+            "qwen/qwen3-coder:free"
+        ]
+        log_scheduler(f"[API ROUTE] Routing via OpenRouter API...")
+    else:
+        api_url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        models = [
+            "gemini-3.5-flash",
+            "gemini-flash-latest",
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-lite",
+            "gemini-2.5-pro",
+            "gemini-pro-latest"
+        ]
+        log_scheduler(f"[API ROUTE] Routing directly to Google Gemini API...")
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -920,8 +934,9 @@ Do NOT include candidate's name in the subject line. Do NOT write any sign-off o
                 time.sleep(delay)
                 delay *= 2
 
-    logger.error("Gemini API failed: All models exhausted or rate-limited.")
+    logger.error("API failed: All models exhausted or rate-limited.")
     return None
+
 
 
 # Scheduled worker pipeline
@@ -949,12 +964,12 @@ def run_scheduled_pipeline():
         
         # 2. Email generation and SMTP sending
         if jobs:
-            api_key = os.environ.get("OPENROUTER_API_KEY")
+            api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("OPENROUTER_API_KEY")
             if not api_key:
-                log_scheduler("[ERROR] OPENROUTER_API_KEY env variable is missing. Scheduled email generation skipped.")
+                log_scheduler("[ERROR] GEMINI_API_KEY or OPENROUTER_API_KEY env variable is missing. Scheduled email generation skipped.")
                 return
                 
-            log_scheduler(f"Running scheduled OpenRouter email generator for {len(jobs)} jobs...")
+            log_scheduler(f"Running scheduled email generator for {len(jobs)} jobs...")
             success_count = 0
             emails_list = []
             
@@ -1173,7 +1188,7 @@ def scrape():
 
 
                 # --- AUTO: Scraping ke baad seedha cold email generate karo ---
-                api_key = os.environ.get("OPENROUTER_API_KEY")
+                api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("OPENROUTER_API_KEY")
                 if api_key and new_jobs:
                     log_scheduler(f"[AUTO EMAIL] Scraping complete. {len(new_jobs)} naye jobs ke liye cold emails generate karna shuru...")
                     try:
@@ -1239,7 +1254,7 @@ def scrape():
                     except Exception as email_err:
                         log_scheduler(f"[AUTO EMAIL ERROR] Email generation fail hua: {email_err}")
                 elif not api_key:
-                    log_scheduler("[AUTO EMAIL] OPENROUTER_API_KEY nahi mila. Cold email generation skip.")
+                    log_scheduler("[AUTO EMAIL] GEMINI_API_KEY or OPENROUTER_API_KEY nahi mila. Cold email generation skip.")
 
             except Exception as e:
                 log_scheduler(f"[ERROR] Background scraper failed: {e}")
@@ -1267,9 +1282,9 @@ def email_status():
 def generate_emails_route():
     global email_running
 
-    api_key = os.environ.get("OPENROUTER_API_KEY")
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
-        return jsonify({"error": "OPENROUTER_API_KEY not set"}), 500
+        return jsonify({"error": "GEMINI_API_KEY or OPENROUTER_API_KEY not set"}), 500
 
     if request.method == "POST" or request.args.get("trigger") == "1":
         with email_lock:
