@@ -22,7 +22,7 @@ INPUT_FILE = "linkedin_fresher_data_analyst_jobs_merged.csv"  # Supports .csv or
 OUTPUT_FILE = "extracted_emails_final.csv"
 LINK_COLUMN_NAME = "Job Posting Link / URL"
 COOKIE_FILE = "www.linkedin.com_cookies.json"
-HEADLESS = False  # Set to True if you want browser to run hidden, False is safer
+HEADLESS = True  # Set to True if you want browser to run hidden, False is safer
 
 # Rate limiting delays
 MIN_DELAY = 8
@@ -153,11 +153,27 @@ def load_and_convert_cookies(filepath):
             log_message("Loaded cookies from JSON list format. Reformatting to Playwright standard...")
             playwright_cookies = []
             for c in json_data:
+                name = c.get("name")
+                    
+                domain = c.get("domain", "")
+                if isinstance(domain, str) and domain:
+                    domain = domain.replace("www.linkedin.com", "linkedin.com")
+                    if not domain.startswith("."):
+                        domain = "." + domain
+                else:
+                    domain = ".linkedin.com"
+                    
+                val = c.get("value", "")
+                if isinstance(val, str):
+                    val = val.strip()
+                    if val.startswith('"') and val.endswith('"'):
+                        val = val[1:-1]
+                        
                 # Map standard cookie fields
                 cookie = {
-                    "name": c.get("name"),
-                    "value": c.get("value"),
-                    "domain": c.get("domain"),
+                    "name": name,
+                    "value": val,
+                    "domain": domain,
                     "path": c.get("path", "/"),
                     "secure": c.get("secure", True),
                     "httpOnly": c.get("httpOnly", False)
@@ -264,6 +280,14 @@ def append_to_csv_progress(row_dict, headers):
             if not file_exists:
                 writer.writeheader()
             writer.writerow(row_dict)
+            
+        # Keep Excel output updated
+        try:
+            excel_path = OUTPUT_FILE.replace(".csv", ".xlsx")
+            df_all = pd.read_csv(OUTPUT_FILE)
+            df_all.to_excel(excel_path, index=False)
+        except Exception as excel_err:
+            log_message(f"Warning: Failed to update Excel output file: {excel_err}", "WARNING")
     except Exception as e:
         log_message(f"Failed to write progressive save to output CSV: {e}", "ERROR")
 
@@ -384,6 +408,10 @@ def main():
                 migrated_df = pd.DataFrame(migration_rows)
                 migrated_df = migrated_df.reindex(columns=headers)
                 migrated_df.to_csv(OUTPUT_FILE, index=False, encoding="utf-8-sig")
+                try:
+                    migrated_df.to_excel(OUTPUT_FILE.replace(".csv", ".xlsx"), index=False)
+                except Exception:
+                    pass
                 log_message("Migration complete! All previous progress was preserved and converted.")
                 
             log_message(f"Found {len(processed_links)} already processed links in output file. Skipping them.")
@@ -404,7 +432,6 @@ def main():
         browser = p.chromium.launch(headless=HEADLESS)
         
         context_args = {
-            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "viewport": {"width": 1280, "height": 800}
         }
         
@@ -451,6 +478,8 @@ def main():
         # 4. Processing Loop
         for idx, (_, row) in enumerate(remaining_df.iterrows()):
             job_link_clean = str(row[LINK_COLUMN_NAME]).strip()
+            # Force www.linkedin.com to prevent regional subdomain redirect loops
+            job_link_clean = re.sub(r'https?://[a-z]{2}\.linkedin\.com', 'https://www.linkedin.com', job_link_clean)
             log_message(f"\n[{idx+1}/{len(remaining_df)}] Navigating to: {job_link_clean}")
             
             row_dict = row.to_dict()
@@ -459,7 +488,10 @@ def main():
             
             try:
                 # Open page
-                page.goto(job_link_clean, timeout=60000)
+                response = page.goto(job_link_clean, timeout=60000)
+                status_code = response.status if response else "Unknown"
+                if status_code != 200:
+                    log_message(f"Page returned status code: {status_code}", "WARNING")
                 page.wait_for_load_state("domcontentloaded")
                 
                 # Check CAPTCHA/Login Checkpoint
