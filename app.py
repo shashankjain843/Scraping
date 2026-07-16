@@ -887,13 +887,29 @@ Do NOT include candidate's name in the subject line. Do NOT write any sign-off o
             try:
                 response = requests.post(api_url, headers=headers, json=payload, timeout=25)
                 
-                # Check for 402 budget exhaustion and immediately try next model
+                # Check for 402 budget exhaustion and immediately stop email generation
                 if response.status_code == 402:
-                    log_scheduler(f"[WARNING] API 402 (Insufficient Credits / Daily Free Limit reached) on '{model_id}'. Trying next model...")
-                    break
+                    log_scheduler(f"[CRITICAL] API 402 (Insufficient Credits / Daily Free Limit reached) on '{model_id}'. Stopping email generation.")
+                    raise Exception("Gemini API daily/quota limit reached (402). Stopping execution.")
                     
-                # Check for 429 rate/quota limits and retry with backoff
+                # Check for 429 rate/quota limits
                 if response.status_code == 429:
+                    err_json = {}
+                    try:
+                        err_json = response.json()
+                    except Exception:
+                        pass
+                    
+                    if isinstance(err_json, list) and len(err_json) > 0:
+                        err_json = err_json[0]
+                        
+                    err_msg = err_json.get("error", {}).get("message", "").lower()
+                    
+                    # If it's a daily limit or project quota (e.g., limit: 0)
+                    if "quota" in err_msg or "limit: 0" in err_msg or "daily" in err_msg or "per day" in err_msg or "quota group" in err_msg:
+                        log_scheduler(f"[CRITICAL] Daily free limit or quota exhausted: {err_msg}")
+                        raise Exception("Gemini API daily/quota limit reached (429). Stopping execution.")
+                        
                     attempts += 1
                     log_scheduler(f"[INFO] API rate limit reached on '{model_id}'. Retrying in {delay}s...")
                     time.sleep(delay)

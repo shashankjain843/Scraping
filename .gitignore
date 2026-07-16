@@ -13,3 +13,7 @@ cold_email_output.txt
 linkedin_fresher_data_analyst_jobs_*.csv
 linkedin_fresher_data_analyst_jobs_*.json
 linkedin_fresher_data_analyst_jobs_*.xls
+# Cookies and Sessions
+*cookies.txt
+*cookies.json
+linkedin_session.json
