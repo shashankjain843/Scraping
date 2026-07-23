@@ -9,6 +9,7 @@ from backend.models import RoleTemplate, User
 from backend.schemas import RoleTemplateOut, RoleTemplateUpdate
 from backend.routers.auth import get_current_user, get_current_user_optional
 from backend.services.email_service import DEFAULT_TEMPLATES, render_email_template
+from backend.services.template_generator import auto_generate_template_from_resume
 
 router = APIRouter(prefix="/api/templates", tags=["Role Templates"])
 
@@ -112,9 +113,29 @@ def upload_resume(
 
     template.resume_file_path = str(save_path)
     template.resume_file_name = file.filename
+
+    # Auto-generate professional email template from the uploaded resume
+    try:
+        gen_subject, gen_body = auto_generate_template_from_resume(
+            str(save_path),
+            role_category,
+            user_full_name=current_user.full_name
+        )
+        template.subject_template = gen_subject
+        template.body_template = gen_body
+    except Exception as e:
+        # If generation fails, keep existing template (don't break the upload)
+        pass
+
     db.commit()
 
-    return {"status": "success", "message": f"Resume attached for {role_category}.", "file_name": file.filename}
+    return {
+        "status": "success",
+        "message": f"Resume uploaded and email template auto-generated for {role_category.replace('_', ' ').title()}.",
+        "file_name": file.filename,
+        "subject_template": template.subject_template,
+        "body_template": template.body_template,
+    }
 
 
 @router.delete("/{role_category}/resume")

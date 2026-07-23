@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Send, Trash2, Edit, AlertCircle, CheckCircle, RefreshCw, Mail, Upload, FileText, CheckSquare, Square, Building, MapPin, Sparkles, Save, ShieldCheck } from 'lucide-react';
+import { Send, Trash2, Edit, AlertCircle, CheckCircle, RefreshCw, Mail, FileText, CheckSquare, Square, Building, MapPin, Sparkles, Save, ShieldCheck } from 'lucide-react';
 import { api } from '../api';
 
 export default function DraftQueue() {
@@ -286,44 +286,20 @@ export default function DraftQueue() {
                         </div>
                       )}
 
-                      {/* Manual Resume Attachment File Picker per Row */}
+                      {/* Auto-Attached Resume Badge (read-only — set from role template) */}
                       <div className="mt-3 flex items-center justify-between pt-2 border-t border-slate-800/50">
                         <div className="flex items-center space-x-2 text-xs">
                           <FileText className="w-4 h-4 text-emerald-400" />
-                          <span className="text-slate-400 font-medium">Resume Attachment:</span>
+                          <span className="text-slate-400 font-medium">Resume:</span>
                           {d.resume_name ? (
-                            <div className="flex items-center space-x-2 bg-emerald-950/40 border border-emerald-500/30 px-2.5 py-1 rounded-lg">
+                            <div className="flex items-center space-x-1.5 bg-emerald-950/40 border border-emerald-500/30 px-2.5 py-1 rounded-lg">
                               <span className="text-emerald-300 font-semibold">{d.resume_name}</span>
-                              <button
-                                onClick={async () => {
-                                  await api.removeDraftResume(d.id);
-                                  fetchDrafts();
-                                }}
-                                className="text-[10px] text-red-400 hover:underline"
-                              >
-                                Remove
-                              </button>
+                              <span className="text-[10px] text-emerald-600">auto-attached</span>
                             </div>
                           ) : (
-                            <label className="text-xs font-semibold text-cyan-400 hover:underline cursor-pointer flex items-center space-x-1 bg-cyan-950/30 px-2.5 py-1 rounded-lg border border-cyan-500/30">
-                              <Upload className="w-3.5 h-3.5" />
-                              <span>Attach Resume (PDF/DOCX)</span>
-                              <input
-                                type="file"
-                                accept=".pdf,.docx,.doc"
-                                className="hidden"
-                                onChange={async (e) => {
-                                  const file = e.target.files[0];
-                                  if (!file) return;
-                                  try {
-                                    await api.uploadDraftResume(d.id, file);
-                                    fetchDrafts();
-                                  } catch (err) {
-                                    alert(err.message);
-                                  }
-                                }}
-                              />
-                            </label>
+                            <span className="text-slate-500 italic text-[11px]">
+                              No resume — upload one in the Templates tab for this role
+                            </span>
                           )}
                         </div>
 
