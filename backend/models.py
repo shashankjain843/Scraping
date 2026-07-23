@@ -19,7 +19,19 @@ class User(Base):
     drafts = relationship("EmailDraft", back_populates="user", cascade="all, delete-orphan")
     sent_logs = relationship("SentLog", back_populates="user", cascade="all, delete-orphan")
 
+class OTPVerification(Base):
+    __tablename__ = "otp_verifications"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, index=True, nullable=False)
+    otp = Column(String, nullable=False)
+    purpose = Column(String, nullable=False) # 'register', 'forgot_password'
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    is_verified = Column(Boolean, default=False)
+
 class UserSettings(Base):
+
     __tablename__ = "user_settings"
     
     id = Column(Integer, primary_key=True, index=True)

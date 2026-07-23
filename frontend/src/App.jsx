@@ -48,16 +48,7 @@ export default function App() {
 
   const checkUser = async () => {
     if (!getAuthToken()) {
-      // Auto login as demo user if available
-      try {
-        const tokenRes = await api.login('user@example.com', 'password123');
-        const token = tokenRes.access_token;
-        localStorage.setItem('token', token);
-        const me = await api.getMe();
-        setUser(me);
-      } catch (err) {
-        setUser(null);
-      }
+      setUser(null);
       return;
     }
     try {
@@ -67,6 +58,7 @@ export default function App() {
       setUser(null);
     }
   };
+
 
   const handleAuthExpired = () => {
     setUser(null);

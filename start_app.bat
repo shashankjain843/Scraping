@@ -6,27 +6,21 @@ echo    Fresher Job Application Platform (Official Adzuna API)
 echo ==========================================================
 echo.
 
-set VENV_DIR=backend\.venv
+set VENV_PYTHON=backend\.venv\Scripts\python.exe
 
-if not exist %VENV_DIR% (
-    set VENV_DIR=.venv
+if not exist %VENV_PYTHON% (
+    set VENV_PYTHON=.venv\Scripts\python.exe
 )
 
-if not exist %VENV_DIR% (
-    echo [ERROR] Virtual environment directory '%VENV_DIR%' not found.
+if not exist %VENV_PYTHON% (
+    echo [ERROR] Virtual environment python '%VENV_PYTHON%' not found.
     pause
     exit /b 1
 )
 
-echo [INFO] Activating virtual environment from %VENV_DIR%...
-call %VENV_DIR%\Scripts\activate
+echo [INFO] Starting Backend Server on http://localhost:8000 ...
+start "JobAssist Backend Server" cmd /k "%VENV_PYTHON% -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload"
 
-echo [INFO] Starting Job Application Assistance Platform on http://localhost:8000 ...
-echo.
+echo [INFO] Backend server started in a dedicated window!
 echo Open http://localhost:8000 in your browser.
-echo Press Ctrl+C to stop the server.
 echo.
-
-python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
-
-pause

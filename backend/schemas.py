@@ -12,7 +12,24 @@ class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
+class OTPRequest(BaseModel):
+    email: EmailStr
+    password: Optional[str] = None
+    full_name: Optional[str] = None
+
+class OTPRegisterVerify(BaseModel):
+    email: EmailStr
+    password: str
+    full_name: str
+    otp: str
+
+class OTPPasswordReset(BaseModel):
+    email: EmailStr
+    otp: str
+    new_password: str
+
 class Token(BaseModel):
+
     access_token: str
     token_type: str = "bearer"
 

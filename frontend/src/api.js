@@ -1,4 +1,4 @@
-const API_BASE = "http://localhost:8000/api";
+const API_BASE = "/api";
 
 export function getAuthToken() {
   return localStorage.getItem("token");
@@ -40,11 +40,20 @@ async function request(endpoint, options = {}) {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(data.detail || data.message || "API Request Failed");
+    let errorMsg = "API Request Failed";
+    if (typeof data.detail === "string") {
+      errorMsg = data.detail;
+    } else if (Array.isArray(data.detail) && data.detail.length > 0) {
+      errorMsg = data.detail.map((e) => e.msg || e.detail || JSON.stringify(e)).join(", ");
+    } else if (data.message) {
+      errorMsg = data.message;
+    }
+    throw new Error(errorMsg);
   }
 
   return data;
 }
+
 
 export const api = {
   // Auth
@@ -53,12 +62,33 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ email, password }),
     }),
+  sendRegisterOTP: (email, password, full_name) =>
+    request("/auth/send-register-otp", {
+      method: "POST",
+      body: JSON.stringify({ email, password, full_name }),
+    }),
+  verifyRegisterOTP: (email, password, full_name, otp) =>
+    request("/auth/verify-register-otp", {
+      method: "POST",
+      body: JSON.stringify({ email, password, full_name, otp }),
+    }),
+  requestForgotOTP: (email) =>
+    request("/auth/forgot-password/request-otp", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+  resetForgotPassword: (email, otp, new_password) =>
+    request("/auth/forgot-password/reset", {
+      method: "POST",
+      body: JSON.stringify({ email, otp, new_password }),
+    }),
   register: (email, password, full_name) =>
     request("/auth/register", {
       method: "POST",
       body: JSON.stringify({ email, password, full_name }),
     }),
   getMe: () => request("/auth/me"),
+
 
   // Jobs
   getJobs: (params = {}) => {

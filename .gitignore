@@ -1,11 +1,29 @@
+# Virtual Environments
 .venv/
 backend/.venv/
+venv/
+ENV/
+
+# Byte-compiled / Python cache
 **/__pycache__/
-*.log
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Environmental & Secret Credentials
 .env
 backend/.env
-*.pyc
-.pytest_cache/
+*.env
+
+# Local Databases & Dynamic Storage
 app.db
+*.sqlite3
 uploads/
 my_resume.*
+
+# Node / Frontend Build Outputs
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+*.log

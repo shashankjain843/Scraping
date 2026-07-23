@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.models import Job, User, UserSettings
 from backend.schemas import JobOut
-from backend.routers.auth import get_current_user
+from backend.routers.auth import get_current_user_optional
 from backend.services.adzuna_service import fetch_adzuna_jobs
 
 router = APIRouter(prefix="/api/jobs", tags=["Jobs"])
@@ -20,8 +20,9 @@ def list_jobs(
     limit: int = 50,
     offset: int = 0,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user_optional)
 ):
+
     query = db.query(Job)
 
     # Filter by role categories if provided
@@ -63,8 +64,9 @@ def list_jobs(
 @router.post("/fetch")
 def trigger_fetch_jobs(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user_optional)
 ):
+
     """
     Manually triggers Adzuna API fetch using user's configured app_id / app_key.
     Respects Adzuna rate limits and deduplicates entries.

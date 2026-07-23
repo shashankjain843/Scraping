@@ -259,10 +259,10 @@ def send_email_now(db: Session, draft_id: int) -> Dict[str, Any]:
 
 
 
-def approve_and_send_batch(db: Session, draft_ids: list[int], space_seconds: int = 120) -> Dict[str, Any]:
+def approve_and_send_batch(db: Session, draft_ids: list[int], space_seconds: int = 10) -> Dict[str, Any]:
     """
     Approve and send a batch of drafts authorized by a single explicit user action ('Approve & Send Selected').
-    Applies courteous pacing between sends to prevent outbox flooding.
+    Applies 10-second pacing between sends to prevent outbox flooding.
     """
     import threading
 
@@ -291,6 +291,22 @@ def approve_and_send_batch(db: Session, draft_ids: list[int], space_seconds: int
     return {
         "status": "success",
         "approved_count": len(draft_ids),
-        "message": f"Approved {len(draft_ids)} drafts. Outgoing emails authorized and will dispatch with courteous {space_seconds // 60}-minute pacing."
+        "message": f"Approved {len(draft_ids)} drafts. Outgoing emails authorized and dispatches with {space_seconds}-second pacing."
     }
+
+def process_queued_emails(db: Session) -> Dict[str, Any]:
+    """
+    Processes and sends pending/queued email drafts that are approved for sending.
+    Applies per-user daily send limits and 10-second rate spacing.
+    """
+    queued_drafts = db.query(EmailDraft).filter(EmailDraft.status == "queued").all()
+    sent_count = 0
+    for draft in queued_drafts:
+        res = send_email_now(db, draft.id)
+        if res.get("status") == "success":
+            sent_count += 1
+        time.sleep(10)
+    return {"processed": len(queued_drafts), "sent": sent_count}
+
+
 

@@ -24,6 +24,8 @@ from backend.routers.applications import router as applications_router
 from backend.routers.settings import router as settings_router
 from backend.routers.assistant import router as assistant_router
 from backend.services.adzuna_service import fetch_adzuna_jobs
+from backend.services.email_service import process_queued_emails
+
 
 
 

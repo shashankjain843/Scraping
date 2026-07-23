@@ -4,15 +4,16 @@ from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.models import User, UserSettings
 from backend.schemas import UserSettingsOut, UserSettingsUpdate
-from backend.routers.auth import get_current_user
+from backend.routers.auth import get_current_user_optional
 
 router = APIRouter(prefix="/api/settings", tags=["Settings"])
 
 @router.get("", response_model=UserSettingsOut)
 def get_settings(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user_optional)
 ):
+
     st = db.query(UserSettings).filter(UserSettings.user_id == current_user.id).first()
     if not st:
         st = UserSettings(user_id=current_user.id)
@@ -39,8 +40,9 @@ def get_settings(
 def update_settings(
     settings_in: UserSettingsUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user_optional)
 ):
+
     st = db.query(UserSettings).filter(UserSettings.user_id == current_user.id).first()
     if not st:
         st = UserSettings(user_id=current_user.id)

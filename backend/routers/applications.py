@@ -10,7 +10,7 @@ from backend.schemas import (
     EmailDraftCreate, EmailDraftUpdate, EmailDraftOut,
     SentLogOut, AICoverNoteRequest, AICoverNoteResponse
 )
-from backend.routers.auth import get_current_user
+from backend.routers.auth import get_current_user, get_current_user_optional
 from backend.services.email_service import create_draft, send_email_now, approve_and_send_batch
 
 from backend.services.ai_cover_note import generate_ai_cover_note
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/applications", tags=["Applications"])
 def get_cover_note(
     req: AICoverNoteRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user_optional)
 ):
     job = db.query(Job).filter(Job.id == req.job_id).first()
     if not job:
@@ -40,7 +40,7 @@ def get_cover_note(
 def create_email_draft(
     draft_in: EmailDraftCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user_optional)
 ):
     job = db.query(Job).filter(Job.id == draft_in.job_id).first()
     if not job:
@@ -69,7 +69,7 @@ def create_email_draft(
 @router.get("/drafts", response_model=List[EmailDraftOut])
 def get_pending_approval_drafts(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user_optional)
 ):
     """
     Returns pending approvals inbox (drafts waiting for explicit user confirmation).
@@ -109,7 +109,7 @@ def update_draft(
     draft_id: int,
     draft_in: EmailDraftUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user_optional)
 ):
     draft = db.query(EmailDraft).filter(
         EmailDraft.id == draft_id,
@@ -148,7 +148,7 @@ def upload_draft_resume(
     draft_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user_optional)
 ):
     import os
     from backend.config import settings

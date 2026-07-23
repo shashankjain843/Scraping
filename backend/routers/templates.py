@@ -7,16 +7,17 @@ from backend.database import get_db
 from backend.config import settings
 from backend.models import RoleTemplate, User
 from backend.schemas import RoleTemplateOut, RoleTemplateUpdate
-from backend.routers.auth import get_current_user
+from backend.routers.auth import get_current_user, get_current_user_optional
+from backend.services.email_service import DEFAULT_TEMPLATES, render_email_template
 
-router = APIRouter(prefix="/api/templates", tags=["Templates"])
+router = APIRouter(prefix="/api/templates", tags=["Role Templates"])
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc"}
 
 @router.get("", response_model=List[RoleTemplateOut])
 def get_user_templates(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user_optional)
 ):
     templates = db.query(RoleTemplate).filter(RoleTemplate.user_id == current_user.id).all()
     

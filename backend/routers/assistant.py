@@ -8,8 +8,9 @@ from sqlalchemy import desc
 from backend.database import get_db
 from backend.models import User, UserSettings, Job, RoleTemplate, EmailDraft, SentLog
 from backend.schemas import EmailDraftOut, JobOut
-from backend.routers.auth import get_current_user
+from backend.routers.auth import get_current_user_optional
 from backend.services.email_extractor import extract_emails_from_text
+
 from backend.services.email_service import send_email_now, approve_and_send_batch
 from backend.services.adzuna_service import fetch_adzuna_jobs
 from backend.services.job_parser import parse_city, parse_experience, parse_role_category
@@ -31,8 +32,9 @@ class SearchResponse(BaseModel):
 def search_and_extract(
     req: SearchRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user_optional)
 ):
+
     """
     Search & Match step + Email Extraction step + Draft Generation + Manual Follow-up grouping.
     Extracts emails ONLY from visible job description text via regex.
@@ -84,7 +86,8 @@ def search_and_extract(
     manual_followup_jobs = []
 
     # Candidate name
-    user_name = (user_settings.full_name if user_settings and user_settings.full_name else current_user.full_name) or "Applicant"
+    user_name = (current_user.full_name if current_user and current_user.full_name else "Applicant")
+
 
     for job in jobs:
         # Step 3: Extract email from job description text ONLY via regex
