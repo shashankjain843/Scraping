@@ -4,6 +4,7 @@ import FilterBar from './components/FilterBar';
 import JobCard from './components/JobCard';
 import MethodAModal from './components/MethodAModal';
 import MethodBModal from './components/MethodBModal';
+import JobAssistantWorkflow from './components/JobAssistantWorkflow';
 import TemplatesManager from './components/TemplatesManager';
 import DraftQueue from './components/DraftQueue';
 import SentLogsTracker from './components/SentLogsTracker';
@@ -201,10 +202,12 @@ export default function App() {
           </div>
         )}
 
+        {activeTab === 'assistant' && <JobAssistantWorkflow />}
         {activeTab === 'templates' && <TemplatesManager />}
         {activeTab === 'drafts' && <DraftQueue />}
         {activeTab === 'logs' && <SentLogsTracker />}
         {activeTab === 'settings' && <SettingsManager />}
+
       </main>
 
       {/* Footer */}

@@ -1,9 +1,0 @@
-.venv/
-venv/
-__pycache__/
-*.log
-.env
-*.pyc
-.pytest_cache/
-app.db
-uploads/

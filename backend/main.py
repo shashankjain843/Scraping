@@ -92,6 +92,7 @@ app.include_router(jobs_router)
 app.include_router(templates_router)
 app.include_router(applications_router)
 app.include_router(settings_router)
+app.include_router(assistant_router)
 
 # Mount uploads directory
 app.mount("/uploads", StaticFiles(directory=settings.UPLOADS_DIR), name="uploads")

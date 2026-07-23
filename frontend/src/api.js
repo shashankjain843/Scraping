@@ -123,7 +123,13 @@ export const api = {
   deleteDraft: (draftId) =>
     request(`/applications/drafts/${draftId}`, { method: "DELETE" }),
 
+  searchAssistant: (role, location) =>
+    request("/assistant/search", {
+      method: "POST",
+      body: JSON.stringify({ role, location }),
+    }),
   uploadDraftResume: (draftId, file) => {
+
     const formData = new FormData();
     formData.append("file", file);
     return request(`/applications/drafts/${draftId}/resume`, {

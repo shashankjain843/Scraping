@@ -1,14 +1,16 @@
 import React from 'react';
-import { Briefcase, FileText, Send, History, Settings, UserCheck, LogOut, RefreshCw } from 'lucide-react';
+import { Briefcase, Sparkles, FileText, Send, History, Settings, UserCheck, LogOut, RefreshCw } from 'lucide-react';
 
 export default function Header({ activeTab, setActiveTab, user, onLogout, onOpenAuth }) {
   const tabs = [
+    { id: 'assistant', label: 'Application Assistant', icon: Sparkles },
     { id: 'jobs', label: 'Job Feed', icon: Briefcase },
     { id: 'templates', label: 'Role Templates', icon: FileText },
     { id: 'drafts', label: 'Pending Approvals Inbox', icon: Send },
     { id: 'logs', label: 'Sent Logs', icon: History },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
+
 
 
   return (
