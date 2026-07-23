@@ -45,8 +45,8 @@ class UserOut(BaseModel):
 # User Settings Schemas
 class UserSettingsOut(BaseModel):
     adzuna_app_id: str
-    adzuna_app_key: str
-    gemini_api_key: str
+    adzuna_app_key_set: bool
+    gemini_api_key_set: bool
     smtp_server: str
     smtp_port: int
     smtp_email: str

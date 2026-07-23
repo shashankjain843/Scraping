@@ -1,13 +1,15 @@
+import os
+import uuid
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Body, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Body, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
-
+from backend.config import settings
 from backend.database import get_db
 from backend.models import User, Job, EmailDraft, SentLog
 from backend.schemas import (
-    EmailDraftCreate, EmailDraftUpdate, EmailDraftOut,
+    EmailDraftUpdate, EmailDraftOut,
     SentLogOut, AICoverNoteRequest, AICoverNoteResponse
 )
 from backend.routers.auth import get_current_user, get_current_user_optional
@@ -38,15 +40,34 @@ def get_cover_note(
 
 @router.post("/draft", response_model=EmailDraftOut)
 def create_email_draft(
-    draft_in: EmailDraftCreate,
+    job_id: int = Form(...),
+    recipient_email: str = Form(...),
+    file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user_optional)
+    current_user: User = Depends(get_current_user)
 ):
-    job = db.query(Job).filter(Job.id == draft_in.job_id).first()
+    job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found.")
 
-    draft = create_draft(db, current_user, job, draft_in.recipient_email)
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in {".pdf", ".docx", ".doc"}:
+        raise HTTPException(status_code=400, detail="Invalid file type. Allowed: PDF, DOCX, DOC.")
+
+    save_filename = f"draft_resume_{uuid.uuid4().hex[:8]}{ext}"
+    save_path = settings.UPLOADS_DIR / save_filename
+
+    with open(save_path, "wb") as buffer:
+        buffer.write(file.file.read())
+
+    draft = create_draft(
+        db,
+        current_user,
+        job,
+        recipient_email,
+        resume_path=str(save_path),
+        resume_name=file.filename
+    )
     
     return EmailDraftOut(
         id=draft.id,

@@ -90,8 +90,41 @@ def render_email_template(template_str: str, user: User, job: Job, user_settings
     return result
 
 
-def create_draft(db: Session, user: User, job: Job, recipient_email: str) -> EmailDraft:
-    """Creates a new EmailDraft staged for human review without auto-attaching resume."""
+import re
+
+def extract_company_from_description(description: Optional[str]) -> str:
+    """
+    Extracts a likely company name from job description text if job.company is missing or generic (e.g. 'N/A').
+    Uses regex patterns: 'Company: <Name>', 'at <Company>', 'joining <Company>'.
+    Does NOT invent or guess if nothing reasonable is found; returns empty string.
+    """
+    if not description:
+        return ""
+    
+    m = re.search(r'(?:Company|Organization|Employer)\s*:\s*([A-Z0-9][A-Za-z0-9\s\,\.\&\-]{2,30})', description, re.IGNORECASE)
+    if m:
+        name = m.group(1).strip().split('\n')[0].strip()
+        if len(name) > 2 and name.lower() not in {"n/a", "unknown", "undisclosed"}:
+            return name
+            
+    m2 = re.search(r'(?:at|joining|hiring at)\s+([A-Z][A-Za-z0-9\&\.\-]{1,25}(?:\s+[A-Z][A-Za-z0-9\&\.\-]{1,25}){0,3})', description)
+    if m2:
+        name = m2.group(1).strip()
+        if len(name) > 2 and name.lower() not in {"a", "the", "our", "an", "this", "location", "remote", "company"}:
+            return name
+            
+    return ""
+
+
+def create_draft(
+    db: Session,
+    user: User,
+    job: Job,
+    recipient_email: str,
+    resume_path: Optional[str] = None,
+    resume_name: Optional[str] = None
+) -> EmailDraft:
+    """Creates a new EmailDraft staged for human review, incorporating candidate name from resume and company from description if needed."""
     user_settings = db.query(UserSettings).filter(UserSettings.user_id == user.id).first()
 
     # Find user template for role category
@@ -103,6 +136,34 @@ def create_draft(db: Session, user: User, job: Job, recipient_email: str) -> Ema
         RoleTemplate.role_category == role_cat
     ).first()
 
+    # Auto-fetch stored resume from role template if no explicit resume provided
+    if not resume_path and role_template and role_template.resume_file_path:
+        if os.path.exists(role_template.resume_file_path):
+            resume_path = role_template.resume_file_path
+            resume_name = role_template.resume_file_name
+
+    # 1. Extract candidate name from resume if available
+    extracted_candidate_name = ""
+    if resume_path and os.path.exists(resume_path):
+        extracted_candidate_name = extract_name_from_resume(resume_path, default_name=user.full_name)
+
+    # 2. Determine company name (fallback to description if missing or generic)
+    company_val = job.company
+    if not company_val or company_val.strip().lower() in {"n/a", "unknown", "none", ""}:
+        company_val = extract_company_from_description(job.description)
+
+    # Override company on job object for template rendering if needed
+    class JobProxy:
+        def __init__(self, original_job, company_override):
+            self.__dict__ = original_job.__dict__.copy()
+            self.company = company_override
+            self.title = original_job.title
+            self.city = original_job.city
+            self.location = original_job.location
+            self.role_category = original_job.role_category
+
+    job_to_render = JobProxy(job, company_val) if company_val != job.company else job
+
     if role_template and role_template.subject_template and role_template.body_template:
         subject_t = role_template.subject_template
         body_t = role_template.body_template
@@ -111,8 +172,8 @@ def create_draft(db: Session, user: User, job: Job, recipient_email: str) -> Ema
         subject_t = def_t["subject"]
         body_t = def_t["body"]
 
-    rendered_subject = render_email_template(subject_t, user, job, user_settings)
-    rendered_body = render_email_template(body_t, user, job, user_settings)
+    rendered_subject = render_email_template(subject_t, user, job_to_render, user_settings, resume_name=extracted_candidate_name)
+    rendered_body = render_email_template(body_t, user, job_to_render, user_settings, resume_name=extracted_candidate_name)
 
     draft = EmailDraft(
         user_id=user.id,
@@ -122,13 +183,14 @@ def create_draft(db: Session, user: User, job: Job, recipient_email: str) -> Ema
         body=rendered_body,
         status="draft",
         is_unmatched=is_unmatched,
-        draft_resume_path=None, # Resume must be manually attached by user per draft
-        draft_resume_name=None
+        draft_resume_path=resume_path,
+        draft_resume_name=resume_name
     )
     db.add(draft)
     db.commit()
     db.refresh(draft)
     return draft
+
 
 
 def send_email_now(db: Session, draft_id: int) -> Dict[str, Any]:

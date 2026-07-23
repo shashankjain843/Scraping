@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Mail, Send, Clock, FileText, X, AlertCircle, ShieldCheck, Upload } from 'lucide-react';
 import { api } from '../api';
 
-
 export default function MethodBModal({ job, user, onClose, onCreatedDraft }) {
   const [recipientEmail, setRecipientEmail] = useState('');
+  const [selectedFile, setSelectedFile] = useState(null);
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [resumeName, setResumeName] = useState(null);
@@ -13,66 +13,47 @@ export default function MethodBModal({ job, user, onClose, onCreatedDraft }) {
   const [sendingNow, setSendingNow] = useState(false);
   const [statusMsg, setStatusMsg] = useState(null);
 
-  useEffect(() => {
-    if (job && user) {
-      loadTemplateAndResume();
-    }
-  }, [job, user]);
-
-  const loadTemplateAndResume = async () => {
-    try {
-      const templates = await api.getTemplates();
-      const roleT = templates.find((t) => t.role_category === job.role_category);
-
-      let subT = roleT?.subject_template || `Application for ${job.title} - ${job.company}`;
-      let bodyT =
-        roleT?.body_template ||
-        `Dear Hiring Manager,\n\nI am writing to express my interest in the ${job.title} role at ${job.company} in ${job.city}.\n\nAttached is my resume for your review.\n\nSincerely,\n${user.full_name}`;
-
-      // Render placeholders
-      subT = subT
-        .replace(/{{company}}/g, job.company)
-        .replace(/{{job_title}}/g, job.title)
-        .replace(/{{city}}/g, job.city)
-        .replace(/{{user_name}}/g, user.full_name);
-
-      bodyT = bodyT
-        .replace(/{{company}}/g, job.company)
-        .replace(/{{job_title}}/g, job.title)
-        .replace(/{{city}}/g, job.city)
-        .replace(/{{user_name}}/g, user.full_name)
-        .replace(/{{user_email}}/g, user.email);
-
-      setSubject(subT);
-      setBody(bodyT);
-
-      if (roleT?.has_resume) {
-        setResumeName(roleT.resume_file_name || 'Resume Attached');
-      } else {
-        setResumeName(null);
-      }
-    } catch (err) {
-      console.error('Error loading template', err);
+  const handleFileSelect = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setSelectedFile(file);
+      setResumeName(file.name);
     }
   };
 
-  const handleCreateOrSaveDraft = async () => {
+  const ensureDraftCreatedOrUpdated = async () => {
     if (!recipientEmail || !recipientEmail.includes('@')) {
       alert('Please enter a valid HR / Company email address manually.');
       return null;
     }
 
+    if (!draftId && !selectedFile) {
+      alert('Please upload your resume file first before generating the email draft.');
+      return null;
+    }
+
+    if (!draftId) {
+      const d = await api.createDraft(job.id, recipientEmail, selectedFile);
+      setDraftId(d.id);
+      setSubject(d.subject);
+      setBody(d.body);
+      if (d.resume_name) setResumeName(d.resume_name);
+      return d;
+    } else {
+      const updated = await api.updateDraft(draftId, subject, body);
+      return updated;
+    }
+  };
+
+  const handleCreateOrSaveDraft = async () => {
     setLoading(true);
+    setStatusMsg(null);
     try {
-      let d;
-      if (!draftId) {
-        d = await api.createDraft(job.id, recipientEmail);
-        setDraftId(d.id);
-      } else {
-        d = await api.updateDraft(draftId, subject, body);
+      const d = await ensureDraftCreatedOrUpdated();
+      if (d) {
+        setStatusMsg({ type: 'success', text: 'Draft generated and saved to queue successfully!' });
+        if (onCreatedDraft) onCreatedDraft();
       }
-      setStatusMsg({ type: 'success', text: 'Draft saved successfully!' });
-      if (onCreatedDraft) onCreatedDraft();
       return d;
     } catch (err) {
       setStatusMsg({ type: 'error', text: err.message });
@@ -83,24 +64,14 @@ export default function MethodBModal({ job, user, onClose, onCreatedDraft }) {
   };
 
   const handleSendNow = async () => {
-    if (!recipientEmail || !recipientEmail.includes('@')) {
-      alert('Please enter a valid HR / Company email address manually.');
-      return;
-    }
-
     setSendingNow(true);
     setStatusMsg(null);
 
     try {
-      let curDraftId = draftId;
-      if (!curDraftId) {
-        const d = await api.createDraft(job.id, recipientEmail);
-        curDraftId = d.id;
-        setDraftId(curDraftId);
-      }
-      await api.updateDraft(curDraftId, subject, body);
+      const d = await ensureDraftCreatedOrUpdated();
+      if (!d) return;
 
-      const res = await api.sendDraftNow(curDraftId);
+      const res = await api.sendDraftNow(d.id);
       setStatusMsg({ type: 'success', text: res.message || 'Email sent successfully via SMTP!' });
       if (onCreatedDraft) onCreatedDraft();
       setTimeout(() => onClose(), 1500);
@@ -128,7 +99,7 @@ export default function MethodBModal({ job, user, onClose, onCreatedDraft }) {
           </div>
           <div>
             <h2 className="text-xl font-bold text-slate-100">Method B: Direct Email Application</h2>
-            <p className="text-xs text-slate-400">Draft, review, and send via your configured SMTP</p>
+            <p className="text-xs text-slate-400">Upload resume, generate personalized draft, review & send via SMTP</p>
           </div>
         </div>
 
@@ -136,7 +107,7 @@ export default function MethodBModal({ job, user, onClose, onCreatedDraft }) {
         <div className="mb-5 p-3 rounded-xl bg-cyan-950/40 border border-cyan-500/20 flex items-start space-x-3 text-xs text-cyan-300">
           <ShieldCheck className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
           <div>
-            <span className="font-bold">Human-in-the-Loop Safeguard:</span> Emails are strictly generated as drafts from manually provided recipient addresses. Every outgoing email requires explicit human confirmation before sending.
+            <span className="font-bold">Human-in-the-Loop Safeguard:</span> Upload your resume and enter recipient address. Draft is generated after reading your resume. Review and edit before sending.
           </div>
         </div>
 
@@ -167,41 +138,15 @@ export default function MethodBModal({ job, user, onClose, onCreatedDraft }) {
           />
         </div>
 
-        {/* Subject Line */}
-        <div className="mb-4">
-          <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-            Subject Line
-          </label>
-          <input
-            type="text"
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            className="w-full px-4 py-2.5 bg-slate-900/80 border border-slate-700/60 rounded-xl text-sm text-slate-200 focus:outline-none focus:border-indigo-500 font-medium"
-          />
-        </div>
-
-        {/* Body Editor */}
-        <div className="mb-4">
-          <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-            Email Body Preview & Editor
-          </label>
-          <textarea
-            rows={8}
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            className="w-full p-4 bg-slate-900/90 border border-slate-700/60 rounded-xl text-sm text-slate-200 focus:outline-none focus:border-indigo-500 font-sans leading-relaxed"
-          />
-        </div>
-
-        {/* Manual Resume Attachment File Picker */}
+        {/* Mandatory Resume Attachment Upload FIRST */}
         <div className="mb-6 p-4 bg-slate-900/60 border border-slate-800 rounded-xl">
           <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2 flex items-center justify-between">
             <span className="flex items-center space-x-2">
               <FileText className="w-4 h-4 text-emerald-400" />
-              <span>Attach Resume (Manual per Draft)</span>
+              <span>Step 1: Upload Resume (PDF / DOCX) <span className="text-red-400">*</span></span>
             </span>
             {resumeName && (
-              <span className="text-xs font-semibold text-emerald-400">Attached: {resumeName}</span>
+              <span className="text-xs font-semibold text-emerald-400">Selected: {resumeName}</span>
             )}
           </label>
 
@@ -213,46 +158,61 @@ export default function MethodBModal({ job, user, onClose, onCreatedDraft }) {
                   if (draftId) {
                     await api.removeDraftResume(draftId);
                   }
+                  setSelectedFile(null);
                   setResumeName(null);
+                  setDraftId(null);
+                  setSubject('');
+                  setBody('');
                 }}
                 className="text-xs text-red-400 hover:underline"
               >
-                Remove Attachment
+                Change Resume
               </button>
             </div>
           ) : (
             <label className="border border-dashed border-slate-700 hover:border-emerald-500/50 rounded-lg p-4 flex items-center justify-center space-x-2 cursor-pointer bg-slate-900/40 hover:bg-slate-900/80 transition">
               <Upload className="w-4 h-4 text-emerald-400" />
-              <span className="text-xs font-semibold text-slate-300">Click to Select & Attach Resume PDF/DOCX</span>
+              <span className="text-xs font-semibold text-slate-300">Click to Select Resume PDF/DOCX (Parsed for Draft)</span>
               <input
                 type="file"
                 accept=".pdf,.docx,.doc"
                 className="hidden"
-                onChange={async (e) => {
-                  const file = e.target.files[0];
-                  if (!file) return;
-                  if (!recipientEmail) {
-                    alert('Please enter recipient HR email first.');
-                    return;
-                  }
-                  try {
-                    let curId = draftId;
-                    if (!curId) {
-                      const d = await api.createDraft(job.id, recipientEmail);
-                      curId = d.id;
-                      setDraftId(curId);
-                    }
-                    const res = await api.uploadDraftResume(curId, file);
-                    setResumeName(res.resume_name);
-                  } catch (err) {
-                    alert(err.message);
-                  }
-                }}
+                onChange={handleFileSelect}
               />
             </label>
           )}
         </div>
 
+        {/* Step 2: Generated Email Subject & Body Preview */}
+        {draftId || (selectedFile && recipientEmail) ? (
+          <>
+            <div className="mb-4">
+              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                Subject Line (Auto-generated & Editable)
+              </label>
+              <input
+                type="text"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="Click 'Generate & Save Draft' to populate"
+                className="w-full px-4 py-2.5 bg-slate-900/80 border border-slate-700/60 rounded-xl text-sm text-slate-200 focus:outline-none focus:border-indigo-500 font-medium"
+              />
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                Email Body Preview & Editor (Parsed Candidate Sign-Off)
+              </label>
+              <textarea
+                rows={8}
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                placeholder="Click 'Generate & Save Draft' to populate"
+                className="w-full p-4 bg-slate-900/90 border border-slate-700/60 rounded-xl text-sm text-slate-200 focus:outline-none focus:border-indigo-500 font-sans leading-relaxed"
+              />
+            </div>
+          </>
+        ) : null}
 
         {/* Action Buttons */}
         <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-4 border-t border-slate-800">
@@ -262,7 +222,7 @@ export default function MethodBModal({ job, user, onClose, onCreatedDraft }) {
             className="w-full sm:w-auto btn-secondary text-sm flex items-center justify-center space-x-2"
           >
             <Clock className="w-4 h-4 text-amber-400" />
-            <span>Save to Draft Queue</span>
+            <span>{draftId ? 'Save Draft Edits' : 'Generate & Save to Draft Queue'}</span>
           </button>
 
           <button

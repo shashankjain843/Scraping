@@ -9,10 +9,6 @@ echo.
 set VENV_PYTHON=backend\.venv\Scripts\python.exe
 
 if not exist %VENV_PYTHON% (
-    set VENV_PYTHON=.venv\Scripts\python.exe
-)
-
-if not exist %VENV_PYTHON% (
     echo [ERROR] Virtual environment python '%VENV_PYTHON%' not found.
     pause
     exit /b 1

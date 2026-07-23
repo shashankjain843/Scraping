@@ -5,7 +5,9 @@ import { api } from '../api';
 export default function SettingsManager() {
   const [adzunaAppId, setAdzunaAppId] = useState('');
   const [adzunaAppKey, setAdzunaAppKey] = useState('');
+  const [adzunaAppKeySet, setAdzunaAppKeySet] = useState(false);
   const [geminiApiKey, setGeminiApiKey] = useState('');
+  const [geminiApiKeySet, setGeminiApiKeySet] = useState(false);
   const [smtpServer, setSmtpServer] = useState('smtp.gmail.com');
   const [smtpPort, setSmtpPort] = useState(587);
   const [smtpEmail, setSmtpEmail] = useState('');
@@ -26,8 +28,10 @@ export default function SettingsManager() {
     try {
       const data = await api.getSettings();
       setAdzunaAppId(data.adzuna_app_id || '');
-      setAdzunaAppKey(data.adzuna_app_key || '');
-      setGeminiApiKey(data.gemini_api_key || '');
+      setAdzunaAppKey('');
+      setAdzunaAppKeySet(Boolean(data.adzuna_app_key_set));
+      setGeminiApiKey('');
+      setGeminiApiKeySet(Boolean(data.gemini_api_key_set));
       setSmtpServer(data.smtp_server || 'smtp.gmail.com');
       setSmtpPort(data.smtp_port || 587);
       setSmtpEmail(data.smtp_email || '');
@@ -52,12 +56,12 @@ export default function SettingsManager() {
     try {
       await api.updateSettings({
         adzuna_app_id: adzunaAppId,
-        adzuna_app_key: adzunaAppKey,
-        gemini_api_key: geminiApiKey,
+        adzuna_app_key: adzunaAppKey || undefined,
+        gemini_api_key: geminiApiKey || undefined,
         smtp_server: smtpServer,
         smtp_port: parseInt(smtpPort, 10),
         smtp_email: smtpEmail,
-        smtp_password: smtpPassword,
+        smtp_password: smtpPassword || undefined,
         phone_number: phoneNumber,
         linkedin_url: linkedinUrl,
         daily_send_limit: parseInt(dailySendLimit, 10),
@@ -65,6 +69,7 @@ export default function SettingsManager() {
       });
       setStatusMsg({ type: 'success', text: 'Settings & Anti-Abuse Protections updated successfully!' });
       setSmtpPassword(''); // Clear cleartext password field after save
+      fetchSettings(); // Refresh configuration status
     } catch (err) {
       setStatusMsg({ type: 'error', text: err.message });
     }
@@ -170,6 +175,7 @@ export default function SettingsManager() {
               </label>
               <input
                 type="password"
+                placeholder={adzunaAppKeySet ? "•••••••• (Key Configured)" : "Enter Adzuna App Key"}
                 value={adzunaAppKey}
                 onChange={(e) => setAdzunaAppKey(e.target.value)}
                 className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-200"
@@ -298,6 +304,7 @@ export default function SettingsManager() {
             </label>
             <input
               type="password"
+              placeholder={geminiApiKeySet ? "•••••••• (Key Configured)" : "Enter Gemini API Key"}
               value={geminiApiKey}
               onChange={(e) => setGeminiApiKey(e.target.value)}
               className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-200"

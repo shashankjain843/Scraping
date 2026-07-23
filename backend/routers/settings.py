@@ -4,14 +4,14 @@ from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.models import User, UserSettings
 from backend.schemas import UserSettingsOut, UserSettingsUpdate
-from backend.routers.auth import get_current_user_optional
+from backend.routers.auth import get_current_user
 
 router = APIRouter(prefix="/api/settings", tags=["Settings"])
 
 @router.get("", response_model=UserSettingsOut)
 def get_settings(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user_optional)
+    current_user: User = Depends(get_current_user)
 ):
 
     st = db.query(UserSettings).filter(UserSettings.user_id == current_user.id).first()
@@ -23,8 +23,8 @@ def get_settings(
 
     return UserSettingsOut(
         adzuna_app_id=st.adzuna_app_id or "",
-        adzuna_app_key=st.adzuna_app_key or "",
-        gemini_api_key=st.gemini_api_key or "",
+        adzuna_app_key_set=bool(st.adzuna_app_key),
+        gemini_api_key_set=bool(st.gemini_api_key),
         smtp_server=st.smtp_server or "smtp.gmail.com",
         smtp_port=st.smtp_port or 587,
         smtp_email=st.smtp_email or "",
@@ -40,7 +40,7 @@ def get_settings(
 def update_settings(
     settings_in: UserSettingsUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user_optional)
+    current_user: User = Depends(get_current_user)
 ):
 
     st = db.query(UserSettings).filter(UserSettings.user_id == current_user.id).first()
@@ -50,9 +50,9 @@ def update_settings(
 
     if settings_in.adzuna_app_id is not None:
         st.adzuna_app_id = settings_in.adzuna_app_id
-    if settings_in.adzuna_app_key is not None:
+    if settings_in.adzuna_app_key is not None and settings_in.adzuna_app_key.strip() != "":
         st.adzuna_app_key = settings_in.adzuna_app_key
-    if settings_in.gemini_api_key is not None:
+    if settings_in.gemini_api_key is not None and settings_in.gemini_api_key.strip() != "":
         st.gemini_api_key = settings_in.gemini_api_key
     if settings_in.smtp_server is not None:
         st.smtp_server = settings_in.smtp_server
@@ -76,8 +76,8 @@ def update_settings(
 
     return UserSettingsOut(
         adzuna_app_id=st.adzuna_app_id or "",
-        adzuna_app_key=st.adzuna_app_key or "",
-        gemini_api_key=st.gemini_api_key or "",
+        adzuna_app_key_set=bool(st.adzuna_app_key),
+        gemini_api_key_set=bool(st.gemini_api_key),
         smtp_server=st.smtp_server or "smtp.gmail.com",
         smtp_port=st.smtp_port or 587,
         smtp_email=st.smtp_email or "",

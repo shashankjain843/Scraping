@@ -132,11 +132,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ job_id: jobId }),
     }),
-  createDraft: (jobId, recipientEmail) =>
-    request("/applications/draft", {
+  createDraft: (jobId, recipientEmail, file) => {
+    const formData = new FormData();
+    formData.append("job_id", jobId);
+    formData.append("recipient_email", recipientEmail);
+    formData.append("file", file);
+    return request("/applications/draft", {
       method: "POST",
-      body: JSON.stringify({ job_id: jobId, recipient_email: recipientEmail }),
-    }),
+      body: formData,
+    });
+  },
   getDrafts: () => request("/applications/drafts"),
   updateDraft: (draftId, subject, body) =>
     request(`/applications/drafts/${draftId}`, {
