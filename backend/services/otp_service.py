@@ -2,7 +2,7 @@ import random
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 
 from backend.models import OTPVerification
@@ -69,7 +69,7 @@ def create_and_send_otp(db: Session, email: str, purpose: str) -> str:
     db.commit()
 
     otp_code = generate_otp()
-    expires_at = datetime.utcnow() + timedelta(minutes=2)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=2)
 
     otp_rec = OTPVerification(
         email=email,
@@ -97,7 +97,7 @@ def verify_otp_code(db: Session, email: str, otp_code: str, purpose: str) -> tup
     if not otp_rec:
         return False, "Invalid OTP code. Please check and try again."
 
-    if datetime.utcnow() > otp_rec.expires_at:
+    if datetime.now(timezone.utc) > otp_rec.expires_at.replace(tzinfo=timezone.utc):
         return False, "OTP has expired (validity was 2 minutes). Please request a new OTP."
 
     # Mark as verified

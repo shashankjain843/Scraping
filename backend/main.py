@@ -181,8 +181,8 @@ def seed_demo_data():
 
         # Seed sample job listings if empty
         if db.query(Job).count() == 0:
-            from datetime import datetime, timedelta
-            now = datetime.utcnow()
+            from datetime import datetime, timezone, timedelta
+            now = datetime.now(timezone.utc)
             sample_jobs = [
                 Job(
                     source="adzuna",

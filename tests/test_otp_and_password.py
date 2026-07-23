@@ -1,5 +1,5 @@
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from backend.services.password_validator import validate_strong_password
 from backend.services.otp_service import generate_otp, verify_otp_code
 from backend.models import OTPVerification
@@ -30,7 +30,7 @@ def test_otp_generation_and_expiry():
             email=email,
             otp=otp_code,
             purpose="register",
-            expires_at=datetime.utcnow() + timedelta(minutes=2),
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=2),
             is_verified=False
         )
         db.add(otp_rec)
@@ -52,7 +52,7 @@ def test_expired_otp():
             email=email,
             otp=otp_code,
             purpose="register",
-            expires_at=datetime.utcnow() - timedelta(seconds=10),
+            expires_at=datetime.now(timezone.utc) - timedelta(seconds=10),
             is_verified=False
         )
         db.add(otp_rec)
