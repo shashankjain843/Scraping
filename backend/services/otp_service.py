@@ -1,5 +1,6 @@
 import random
 import smtplib
+import threading
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta, timezone
@@ -15,7 +16,7 @@ def generate_otp() -> str:
 def send_otp_email(email: str, otp: str, purpose: str) -> bool:
     """
     Sends 6-digit OTP code to the recipient email via configured SMTP server.
-    Logs to console for easy testing.
+    Tries SMTP_SSL (port 465) first, falls back to STARTTLS (port 587).
     """
     subject = "Your Verification OTP Code - JobAssist AI"
     if purpose == "register":
@@ -37,25 +38,42 @@ def send_otp_email(email: str, otp: str, purpose: str) -> bool:
     print(f"==========================================\n")
 
     # Attempt SMTP delivery if configured
-    if settings.SMTP_SERVER and settings.SMTP_EMAIL and settings.SMTP_PASSWORD:
-        try:
-            msg = MIMEMultipart()
-            msg["From"] = settings.SMTP_EMAIL
-            msg["To"] = email
-            msg["Subject"] = subject
-            msg.attach(MIMEText(body, "plain"))
+    if not (settings.SMTP_SERVER and settings.SMTP_EMAIL and settings.SMTP_PASSWORD):
+        print("⚠️ SMTP not configured — OTP only printed to console.")
+        return True
 
-            server = smtplib.SMTP(settings.SMTP_SERVER, settings.SMTP_PORT)
-            server.starttls()
+    msg = MIMEMultipart()
+    msg["From"] = settings.SMTP_EMAIL
+    msg["To"] = email
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain"))
+
+    # Try SSL on port 465 first (most reliable on cloud/Render)
+    try:
+        import ssl
+        context = ssl.create_default_context()
+        with smtplib.SMTP_SSL(settings.SMTP_SERVER, 465, context=context, timeout=15) as server:
             server.login(settings.SMTP_EMAIL, settings.SMTP_PASSWORD)
             server.send_message(msg)
-            server.quit()
-            return True
-        except Exception as e:
-            print(f"⚠️ SMTP OTP send warning: {e}")
-            return False
-            
-    return True
+        print(f"✅ OTP email sent via SSL to {email}")
+        return True
+    except Exception as ssl_err:
+        print(f"⚠️ SSL send failed: {ssl_err} — trying STARTTLS...")
+
+    # Fallback: STARTTLS on port 587
+    try:
+        with smtplib.SMTP(settings.SMTP_SERVER, settings.SMTP_PORT, timeout=15) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(settings.SMTP_EMAIL, settings.SMTP_PASSWORD)
+            server.send_message(msg)
+        print(f"✅ OTP email sent via STARTTLS to {email}")
+        return True
+    except Exception as tls_err:
+        print(f"❌ STARTTLS send also failed: {tls_err}")
+        return False
+
 
 def create_and_send_otp(db: Session, email: str, purpose: str) -> str:
     """
@@ -81,7 +99,9 @@ def create_and_send_otp(db: Session, email: str, purpose: str) -> str:
     db.add(otp_rec)
     db.commit()
 
-    send_otp_email(email, otp_code, purpose)
+    # Send email in background thread — don't block the API response
+    thread = threading.Thread(target=send_otp_email, args=(email, otp_code, purpose), daemon=True)
+    thread.start()
     return otp_code
 
 def verify_otp_code(db: Session, email: str, otp_code: str, purpose: str) -> tuple[bool, str]:
