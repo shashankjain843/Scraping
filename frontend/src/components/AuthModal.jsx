@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { X, Lock, Mail, User, ShieldCheck, Check, AlertCircle, ArrowRight, RefreshCw, KeyRound, Eye, EyeOff } from 'lucide-react';
 import { api, setAuthToken } from '../api';
 
-export default function AuthModal({ onClose, onSuccess }) {
+export default function AuthModal({ onClose, onSuccess, defaultTab = 'login' }) {
   // Modes: 'login', 'register_init', 'register_otp', 'forgot_init', 'forgot_otp'
-  const [mode, setMode] = useState('login');
+  const [mode, setMode] = useState(defaultTab === 'register' ? 'register_init' : 'login');
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

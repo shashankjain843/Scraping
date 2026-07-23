@@ -17,6 +17,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('jobs');
   const [user, setUser] = useState(null);
   const [authOpen, setAuthOpen] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
 
   // Job Feed state & filters
   const [jobs, setJobs] = useState([]);
@@ -49,6 +50,8 @@ export default function App() {
   const checkUser = async () => {
     if (!getAuthToken()) {
       setUser(null);
+      setAuthChecked(true);
+      setAuthOpen(true); // Auto-open auth gate for unauthenticated users
       return;
     }
     try {
@@ -56,6 +59,9 @@ export default function App() {
       setUser(me);
     } catch (err) {
       setUser(null);
+      setAuthOpen(true);
+    } finally {
+      setAuthChecked(true);
     }
   };
 
@@ -104,8 +110,39 @@ export default function App() {
   const handleLogout = () => {
     removeAuthToken();
     setUser(null);
+    setAuthChecked(true); // keep checked=true, user=null will trigger auth gate
     showToast('Logged out successfully.', 'success');
   };
+
+  // Show nothing until auth check completes (avoids content flash)
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950">
+        <div className="text-slate-400 text-sm animate-pulse">Loading...</div>
+      </div>
+    );
+  }
+
+  // Full-screen auth gate — nothing accessible without login
+  if (!user) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-slate-100">
+        <div className="mb-8 text-center">
+          <h1 className="text-3xl font-bold text-indigo-400 mb-2">JobAssist AI</h1>
+          <p className="text-slate-400 text-sm">Please create an account or sign in to continue</p>
+        </div>
+        <AuthModal
+          defaultTab="register"
+          onClose={() => {}}
+          onSuccess={(u) => {
+            setUser(u);
+            setAuthOpen(false);
+            showToast(`Welcome, ${u.full_name}!`, 'success');
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100">
@@ -217,12 +254,14 @@ export default function App() {
           onCreatedDraft={() => showToast('Draft saved to queue!', 'success')}
         />
       )}
-      {authOpen && (
+      {authOpen && user === null && (
         <AuthModal
-          onClose={() => setAuthOpen(false)}
+          defaultTab="register"
+          onClose={() => {}}
           onSuccess={(u) => {
             setUser(u);
-            showToast(`Welcome back, ${u.full_name}!`, 'success');
+            setAuthOpen(false);
+            showToast(`Welcome, ${u.full_name}!`, 'success');
           }}
         />
       )}
